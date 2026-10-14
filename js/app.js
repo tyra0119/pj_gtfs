@@ -435,7 +435,11 @@
       tr.addEventListener('focusin', pick); tr.addEventListener('click', pick);
       tr.append(el('td', { class: 'rownum' }, String(i + 2)));
       for (const c of cols) tr.append(el('td', { 'data-col': c }, cellInput(S.file, c, r, () => { if (S.file === 'stops.txt' || S.file === 'location_group_stops.txt' || S.file === 'location_groups.txt') refreshMap(false); })));
-      tr.append(el('td', { class: 'del' }, el('button', { title: 'この行を消す', onclick: () => { if (confirm((i + 2) + ' 行目を消しますか')) { t.rows.splice(i, 1); changed(); renderEditor(); refreshMap(false); } } }, '✕')));
+      tr.append(el('td', { class: 'del' }, el('button', { title: 'この行を消す', onclick: () => {
+        if (S.file === 'stops.txt') { deleteStop(r.stop_id); return; }
+        if (S.file === 'location_groups.txt') { deleteGroup(r.location_group_id); return; }
+        if (confirm((i + 2) + ' 行目を消しますか')) { t.rows.splice(i, 1); changed(); renderEditor(); refreshMap(false); }
+      } }, '✕')));
       tbody.append(tr);
     }
     table.append(tbody); wrap.append(table); box.append(wrap);
@@ -570,12 +574,7 @@
     t.rows.push(G.newRow('location_groups.txt', { location_group_id: id, location_group_name: '' }));
     S.group = id; changed(); renderZones(); refreshMap(false);
   });
-  $('#btnGroupDel').addEventListener('click', () => {
-    if (!S.group || !confirm(`グループ "${S.group}" を消しますか（停留所との対応も消えます）`)) return;
-    const t = S.feed.files['location_groups.txt']; t.rows = t.rows.filter(r => r.location_group_id !== S.group);
-    const m = S.feed.files['location_group_stops.txt']; if (m) m.rows = m.rows.filter(r => r.location_group_id !== S.group);
-    S.group = ''; changed(); renderZones(); refreshMap(false);
-  });
+  $('#btnGroupDel').addEventListener('click', () => { if (S.group) deleteGroup(S.group); });
   $('#btnPickStops').addEventListener('click', () => { if (S.group) toggleMode('pickStops'); else alert('先にグループを選ぶか追加してください'); });
   $('#btnGroupAll').addEventListener('click', () => {
     if (!S.group) return;
@@ -586,19 +585,75 @@
   $('#btnGroupNone').addEventListener('click', () => { if (!S.group) return; const t = S.feed.files['location_group_stops.txt']; if (t) t.rows = t.rows.filter(r => r.location_group_id !== S.group); changed(); renderZones(); refreshMap(false); });
   $('#locSelect').addEventListener('change', e => { S.loc = +e.target.value; renderZones(); refreshMap(false); const f = S.feed.locations.features[S.loc]; if (f) M.fitTo([f]); });
   $('#btnLocDraw').addEventListener('click', () => { if (!S.feed) return; toggleMode('draw'); });
-  $('#btnLocDel').addEventListener('click', () => {
-    const f = S.feed && S.feed.locations && S.feed.locations.features[S.loc]; if (!f || !confirm(`区域 "${f.id}" を消しますか`)) return;
-    S.feed.locations.features.splice(S.loc, 1); S.loc = Math.min(S.loc, S.feed.locations.features.length - 1);
-    changed(); renderZones(); refreshMap(false);
-  });
+  $('#btnLocDel').addEventListener('click', () => { if (S.feed && S.feed.locations) deleteLocation(S.loc); });
   $('#btnStopAdd').addEventListener('click', () => { if (!S.feed) return; toggleMode('addStop'); if (M.getMode() === 'addStop') { S.stop = null; if (stopPopup) { stopPopup.remove(); stopPopup = null; } refreshMap(false); } renderStopForm(); });
   $('#map').addEventListener('modechange', () => renderStopForm());
   $('#btnStopMove').addEventListener('click', () => { if (!S.feed) return; toggleMode('moveStop'); });
-  $('#btnStopDel').addEventListener('click', () => {
-    if (!S.stop || !confirm(`停留所 "${S.stop}" を消しますか（グループや便からの参照は残るので、検証で確認してください）`)) return;
-    const t = S.feed.files['stops.txt']; t.rows = t.rows.filter(r => r.stop_id !== S.stop); S.stop = null;
-    changed(); renderZones(); refreshMap(false);
-  });
+  $('#btnStopDel').addEventListener('click', () => { if (S.stop) deleteStop(S.stop); });
+  // 停留所を消す。参照している行（グループの対応、便の行、乗継、構内経路、運賃エリア、親駅）も一緒に消す
+  function deleteStop(id) {
+    const R = n => G.rows(S.feed, n);
+    const st = R('stops.txt').find(r => r.stop_id === id); if (!st) return false;
+    const refs = {
+      groups: R('location_group_stops.txt').filter(r => r.stop_id === id),
+      times: R('stop_times.txt').filter(r => r.stop_id === id),
+      transfers: R('transfers.txt').filter(r => r.from_stop_id === id || r.to_stop_id === id),
+      pathways: R('pathways.txt').filter(r => r.from_stop_id === id || r.to_stop_id === id),
+      areas: R('stop_areas.txt').filter(r => r.stop_id === id),
+      children: R('stops.txt').filter(r => r.parent_station === id),
+    };
+    const trips = [...new Set(refs.times.map(r => r.trip_id))];
+    const lines = [];
+    if (refs.groups.length) lines.push(`・グループの対応 ${refs.groups.length} 件（${[...new Set(refs.groups.map(r => r.location_group_id))].join(', ')}）`);
+    if (refs.times.length) lines.push(`・便の行 ${refs.times.length} 件（便 ${trips.slice(0, 5).join(', ')}${trips.length > 5 ? ' ほか' : ''}）。行が減った便は検証で確かめてください`);
+    if (refs.transfers.length) lines.push(`・乗継 ${refs.transfers.length} 件`);
+    if (refs.pathways.length) lines.push(`・構内経路 ${refs.pathways.length} 件`);
+    if (refs.areas.length) lines.push(`・運賃エリアの対応 ${refs.areas.length} 件`);
+    if (refs.children.length) lines.push(`・${refs.children.length} 件の停留所の parent_station を空にする`);
+    if (!confirm(`停留所 "${id}" ${st.stop_name || ''} を消しますか？` + (lines.length ? '\n次も一緒に消します:\n' + lines.join('\n') : '\n参照している行はありません'))) return false;
+    const F = S.feed.files;
+    F['stops.txt'].rows = F['stops.txt'].rows.filter(r => r.stop_id !== id);
+    for (const r of refs.children) r.parent_station = '';
+    if (F['location_group_stops.txt']) F['location_group_stops.txt'].rows = F['location_group_stops.txt'].rows.filter(r => r.stop_id !== id);
+    if (F['stop_times.txt']) F['stop_times.txt'].rows = F['stop_times.txt'].rows.filter(r => r.stop_id !== id);
+    if (F['transfers.txt']) F['transfers.txt'].rows = F['transfers.txt'].rows.filter(r => r.from_stop_id !== id && r.to_stop_id !== id);
+    if (F['pathways.txt']) F['pathways.txt'].rows = F['pathways.txt'].rows.filter(r => r.from_stop_id !== id && r.to_stop_id !== id);
+    if (F['stop_areas.txt']) F['stop_areas.txt'].rows = F['stop_areas.txt'].rows.filter(r => r.stop_id !== id);
+    if (S.stop === id) S.stop = null;
+    if (stopPopup) { stopPopup.remove(); stopPopup = null; }
+    changed(); fillFileSelect(); renderZones(); renderTrips(); refreshMap(false);
+    if (document.querySelector('#tab-files.active')) renderEditor();
+    return true;
+  }
+  // グループを消す。停留所との対応と、そのグループを使う便の行も消す
+  function deleteGroup(gid) {
+    const R = n => G.rows(S.feed, n);
+    const times = R('stop_times.txt').filter(r => r.location_group_id === gid);
+    const trips = [...new Set(times.map(r => r.trip_id))];
+    if (!confirm(`グループ "${gid}" ${groupLabel(gid)} を消しますか？\n・停留所との対応 ${R('location_group_stops.txt').filter(r => r.location_group_id === gid).length} 件も消します` + (times.length ? `\n・便の行 ${times.length} 件（便 ${trips.slice(0, 5).join(', ')}${trips.length > 5 ? ' ほか' : ''}）も消します。行が減った便は検証で確かめてください` : ''))) return false;
+    const F = S.feed.files;
+    F['location_groups.txt'].rows = F['location_groups.txt'].rows.filter(r => r.location_group_id !== gid);
+    if (F['location_group_stops.txt']) F['location_group_stops.txt'].rows = F['location_group_stops.txt'].rows.filter(r => r.location_group_id !== gid);
+    if (F['stop_times.txt']) F['stop_times.txt'].rows = F['stop_times.txt'].rows.filter(r => r.location_group_id !== gid);
+    if (S.group === gid) S.group = '';
+    changed(); fillFileSelect(); renderZones(); renderTrips(); refreshMap(false);
+    if (document.querySelector('#tab-files.active')) renderEditor();
+    return true;
+  }
+  // 区域ポリゴンを消す。その区域を使う便の行も消す
+  function deleteLocation(index) {
+    const f = S.feed.locations && S.feed.locations.features[index]; if (!f) return false;
+    const lid = String(f.id);
+    const times = G.rows(S.feed, 'stop_times.txt').filter(r => String(r.location_id) === lid);
+    const trips = [...new Set(times.map(r => r.trip_id))];
+    if (!confirm(`区域 "${lid}" ${(f.properties || {}).stop_name || ''} を消しますか？` + (times.length ? `\n・便の行 ${times.length} 件（便 ${trips.slice(0, 5).join(', ')}${trips.length > 5 ? ' ほか' : ''}）も消します。行が減った便は検証で確かめてください` : '\n参照している便の行はありません'))) return false;
+    S.feed.locations.features.splice(index, 1);
+    const F = S.feed.files; if (F['stop_times.txt']) F['stop_times.txt'].rows = F['stop_times.txt'].rows.filter(r => String(r.location_id) !== lid);
+    S.loc = Math.min(S.loc, S.feed.locations.features.length - 1);
+    changed(); fillFileSelect(); renderZones(); renderTrips(); refreshMap(false);
+    if (document.querySelector('#tab-files.active')) renderEditor();
+    return true;
+  }
   // 停留所を選ぶ。地図のクリック、「停留所を探す」、表からの移動で共通に使う
   let stopPopup = null;
   function selectStop(id, o) {
@@ -619,7 +674,8 @@
       el('div', { class: 'row' },
         el('button', { class: 'btn small', onclick: () => { setTab('zones'); renderStopForm(); $('#stopForm').scrollIntoView({ block: 'center' }); } }, '編集'),
         S.group ? el('button', { class: 'btn small', title: `location_group_id ${S.group}`, onclick: () => { toggleMember(S.group, r.stop_id); selectStop(r.stop_id, { popup: true }); } }, inG ? `グループ「${groupLabel(S.group)}」から外す` : `グループ「${groupLabel(S.group)}」に入れる`) : null,
-        el('button', { class: 'btn small', onclick: () => { S.file = 'stops.txt'; S.mode = 'table'; S.filter = r.stop_id; S.page = 0; S.hlRow = null; $('#fileSelect').value = S.file; document.querySelectorAll('.modes button').forEach(x => x.classList.toggle('active', x.dataset.mode === 'table')); setTab('files'); renderEditor(); } }, '表で見る')));
+        el('button', { class: 'btn small', onclick: () => { S.file = 'stops.txt'; S.mode = 'table'; S.filter = r.stop_id; S.page = 0; S.hlRow = null; $('#fileSelect').value = S.file; document.querySelectorAll('.modes button').forEach(x => x.classList.toggle('active', x.dataset.mode === 'table')); setTab('files'); renderEditor(); } }, '表で見る'),
+        el('button', { class: 'btn small danger', onclick: () => deleteStop(r.stop_id) }, '消す')));
     stopPopup = new maplibregl.Popup({ offset: 12, maxWidth: '300px' }).setLngLat([+r.stop_lon, +r.stop_lat]).setDOMContent(div).addTo(M.map);
   }
   $('#stopFind').addEventListener('change', e => {
