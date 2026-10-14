@@ -162,3 +162,7 @@ table.grid th .req, table.grid th .cond { margin-left: 2px; }
 dialog form > label .req { display: inline; }
 table.grid tr.cur td { background: #eef4ff; }
 table.grid tr.hl.cur td { background: #fff5d6; }
+table.grid th .coldel { border: 0; background: transparent; color: #bbb; cursor: pointer; font-size: 11px; margin-left: 4px; padding: 0 2px; vertical-align: middle; }
+table.grid th .coldel:hover { color: var(--err); }
+.form .formtitle { grid-column: 1 / -1; font-weight: 600; font-size: 13px; padding: 2px 0; border-bottom: 1px solid var(--line); margin-bottom: 2px; }
+.form .hint { grid-column: 1 / -1; background: #fff7e6; border: 1px solid #f0d9a8; border-radius: 6px; padding: 6px 8px; font-size: 13px; }

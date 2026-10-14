@@ -23,7 +23,8 @@
       const t = G.ensureTable(S.feed, 'stops.txt');
       const id = nextId(t.rows.map(r => r.stop_id), 'S');
       t.rows.push(G.newRow('stops.txt', { stop_id: id, stop_name: '新しい停留所', stop_lat: ll.lat.toFixed(6), stop_lon: ll.lng.toFixed(6), location_type: '0' }));
-      S.stop = id; changed(); renderStopForm(); refreshMap();
+      S.stop = id; changed(); renderStopForm(); refreshMap(false);
+      const nameInput = $('#stopForm input[data-col=stop_name]'); if (nameInput) { nameInput.focus(); nameInput.select(); }
     },
     onStopMoved(id, ll, done) {
       const r = G.rows(S.feed, 'stops.txt').find(x => x.stop_id === id); if (!r) return;
@@ -399,7 +400,11 @@
     let ft; filt.addEventListener('input', () => { clearTimeout(ft); ft = setTimeout(() => { S.filter = filt.value; S.page = 0; renderEditor(); }, 300); });
     bar.append(filt,
       el('button', { class: 'btn small', onclick: () => { t.rows.push(G.newRow(S.file, defaultsFor(S.file))); S.filter = ''; S.page = Math.floor((t.rows.length - 1) / PAGE_SIZE); S.hlRow = t.rows.length - 1; changed(); renderEditor(); } }, '＋ 行を足す'),
-      el('button', { class: 'btn small', onclick: () => { const c = prompt('足す列の名前'); if (c && !t.header.includes(c)) { t.header.push(c); changed(); renderEditor(); } } }, '＋ 列を足す'),
+      el('button', { class: 'btn small', onclick: () => {
+        const cands = (spec ? spec.fields.map(f => f.name) : []).filter(c => !t.header.includes(c));
+        const c = prompt('足す列の名前' + (cands.length ? '\n仕様の列で今ないもの: ' + cands.join(', ') : '') + '\n仕様にない名前でも構いません。', cands[0] || '');
+        if (c && c.trim() && !t.header.includes(c.trim())) { t.header.push(c.trim()); changed(); renderEditor(); }
+      } }, '＋ 列を足す'),
       el('span', { class: 'muted' }, `${idx.length} 行${q ? '（全 ' + t.rows.length + ' 行）' : ''}`),
       el('button', { class: 'btn small', onclick: () => { S.page = Math.max(0, S.page - 1); renderEditor(); } }, '‹'),
       el('span', null, `${S.page + 1} / ${pages}`),
@@ -408,7 +413,18 @@
     const wrap = el('div', { class: 'tablewrap' });
     const table = el('table', { class: 'grid' });
     const thead = el('tr', null, el('th', null, '#'));
-    for (const c of cols) { const fd = SPEC.field(S.file, c); thead.append(el('th', { class: fd && fd.required === true ? 'req' : '', title: (fd && fd.help ? fd.help + '\n' : '') + reqTitle(fd) }, c, reqMark(fd), el('small', null, fd ? fd.label : '仕様外'))); }
+    for (const c of cols) {
+      const fd = SPEC.field(S.file, c);
+      const del = el('button', { class: 'coldel', title: `列 ${c} を消す`, onclick: e => {
+        e.stopPropagation();
+        const n = t.rows.filter(r => (r[c] || '') !== '').length;
+        if (fd && fd.required === true) { alert(`${c} は必須の列なので消せません`); return; }
+        if (!confirm(`列 ${c}（${fd ? fd.label : '仕様外'}）を消しますか？\n${n} 行に値が入っています。値も消えます（「列を足す」で列は戻せますが、値は戻りません）`)) return;
+        t.header = t.header.filter(x => x !== c); for (const r of t.rows) delete r[c];
+        changed(); renderEditor(); refreshMap(false);
+      } }, '✕');
+      thead.append(el('th', { class: fd && fd.required === true ? 'req' : '', title: (fd && fd.help ? fd.help + '\n' : '') + reqTitle(fd) }, c, reqMark(fd), fd && fd.required === true ? null : del, el('small', null, fd ? fd.label : '仕様外')));
+    }
     thead.append(el('th', null, ''));
     table.append(el('thead', null, thead));
     const tbody = el('tbody');
@@ -539,7 +555,13 @@
     renderStopForm();
   }
   $('#groupSelect').addEventListener('change', e => { S.group = e.target.value; renderZones(); refreshMap(false); });
-  $('#groupName').addEventListener('change', e => { const g = G.rows(S.feed, 'location_groups.txt').find(x => x.location_group_id === S.group); if (g) { g.location_group_name = e.target.value.trim(); changed(); renderZones(); } });
+  // グループ名は打つたびに反映する（選択欄の表示もその場で直す。入力欄から出たら全体を描き直す）
+  $('#groupName').addEventListener('input', e => {
+    const g = G.rows(S.feed, 'location_groups.txt').find(x => x.location_group_id === S.group); if (!g) return;
+    g.location_group_name = e.target.value.trim(); changed();
+    const opt = $('#groupSelect').querySelector(`option[value="${CSS.escape(S.group)}"]`); if (opt) opt.textContent = `${S.group}: ${g.location_group_name || '(名前なし)'}`;
+  });
+  $('#groupName').addEventListener('change', () => renderZones());
   $('#btnGroupAdd').addEventListener('click', () => {
     if (!S.feed) return;
     const t = G.ensureTable(S.feed, 'location_groups.txt');
@@ -569,7 +591,8 @@
     S.feed.locations.features.splice(S.loc, 1); S.loc = Math.min(S.loc, S.feed.locations.features.length - 1);
     changed(); renderZones(); refreshMap(false);
   });
-  $('#btnStopAdd').addEventListener('click', () => { if (!S.feed) return; toggleMode('addStop'); });
+  $('#btnStopAdd').addEventListener('click', () => { if (!S.feed) return; toggleMode('addStop'); if (M.getMode() === 'addStop') { S.stop = null; if (stopPopup) { stopPopup.remove(); stopPopup = null; } refreshMap(false); } renderStopForm(); });
+  $('#map').addEventListener('modechange', () => renderStopForm());
   $('#btnStopMove').addEventListener('click', () => { if (!S.feed) return; toggleMode('moveStop'); });
   $('#btnStopDel').addEventListener('click', () => {
     if (!S.stop || !confirm(`停留所 "${S.stop}" を消しますか（グループや便からの参照は残るので、検証で確認してください）`)) return;
@@ -595,7 +618,7 @@
       ...((S.stopIssueList && S.stopIssueList.get(r.stop_id)) || []).slice(0, 4).map(it => el('div', { class: 'popup-issue ' + it.level, onclick: () => { setTab('validate'); const li = [...$('#issueList').querySelectorAll('li')].find(x => x._issue === it); if (li) { li.classList.add('current'); li.scrollIntoView({ block: 'center' }); } } }, (it.level === 'error' ? '✖ ' : '△ ') + it.msg)),
       el('div', { class: 'row' },
         el('button', { class: 'btn small', onclick: () => { setTab('zones'); renderStopForm(); $('#stopForm').scrollIntoView({ block: 'center' }); } }, '編集'),
-        S.group ? el('button', { class: 'btn small', onclick: () => { toggleMember(S.group, r.stop_id); selectStop(r.stop_id, { popup: true }); } }, inG ? `"${S.group}" から外す` : `"${S.group}" に入れる`) : null,
+        S.group ? el('button', { class: 'btn small', title: `location_group_id ${S.group}`, onclick: () => { toggleMember(S.group, r.stop_id); selectStop(r.stop_id, { popup: true }); } }, inG ? `グループ「${groupLabel(S.group)}」から外す` : `グループ「${groupLabel(S.group)}」に入れる`) : null,
         el('button', { class: 'btn small', onclick: () => { S.file = 'stops.txt'; S.mode = 'table'; S.filter = r.stop_id; S.page = 0; S.hlRow = null; $('#fileSelect').value = S.file; document.querySelectorAll('.modes button').forEach(x => x.classList.toggle('active', x.dataset.mode === 'table')); setTab('files'); renderEditor(); } }, '表で見る')));
     stopPopup = new maplibregl.Popup({ offset: 12, maxWidth: '300px' }).setLngLat([+r.stop_lon, +r.stop_lat]).setDOMContent(div).addTo(M.map);
   }
@@ -630,13 +653,17 @@
   function renderStopForm() {
     const box = $('#stopForm'); box.innerHTML = '';
     const r = S.stop && G.rows(S.feed, 'stops.txt').find(x => x.stop_id === S.stop);
-    if (!r) { box.append(el('div', { class: 'muted' }, '停留所が選ばれていません')); return; }
+    if (M.getMode() === 'addStop' && !r) { box.append(el('div', { class: 'hint' }, '新規追加: 地図をクリックすると、その場所に停留所を作ります。作ったあと、ここで名前などを直せます。')); return; }
+    if (!r) { box.append(el('div', { class: 'muted' }, '停留所が選ばれていません（地図の停留所をクリックするか、「停留所を探す」で選びます）')); return; }
+    box.append(el('div', { class: 'formtitle' }, `編集中: ${r.stop_id}${r.stop_name ? '　' + r.stop_name : ''}`));
     for (const c of ['stop_id', 'stop_name', 'stop_code', 'stop_lat', 'stop_lon', 'stop_desc']) {
-      box.append(el('label', { title: reqTitle(SPEC.field('stops.txt', c)) }, SPEC.label('stops.txt', c) + ' ', el('small', { class: 'muted' }, c), reqMark(SPEC.field('stops.txt', c))), cellInput('stops.txt', c, r, () => refreshMap(false)));
+      const inp = cellInput('stops.txt', c, r, () => { refreshMap(false); renderStopForm(); });
+      inp.dataset.col = c;
+      box.append(el('label', { title: reqTitle(SPEC.field('stops.txt', c)) }, SPEC.label('stops.txt', c) + ' ', el('small', { class: 'muted' }, c), reqMark(SPEC.field('stops.txt', c))), inp);
     }
     if (S.group) {
       const inG = memberSet(S.group).has(r.stop_id);
-      box.append(el('label', null, 'グループ'), el('button', { class: 'btn small', onclick: () => toggleMember(S.group, r.stop_id) }, inG ? `"${S.group}" から外す` : `"${S.group}" に入れる`));
+      box.append(el('label', null, 'グループ'), el('button', { class: 'btn small', title: `location_group_id ${S.group}`, onclick: () => toggleMember(S.group, r.stop_id) }, inG ? `「${groupLabel(S.group)}」から外す` : `「${groupLabel(S.group)}」に入れる`));
     }
   }
 
@@ -738,6 +765,8 @@
     return null;
   }
   function reqTitle(fd) { return !fd ? '' : fd.required === true ? '必須' : fd.required === 'cond' ? '条件付きで必須' : ''; }
+  // グループの表示名: 名前があれば名前、なければ「ID 1」のように
+  function groupLabel(gid) { const g = G.rows(S.feed, 'location_groups.txt').find(x => x.location_group_id === gid); return g && g.location_group_name ? g.location_group_name : 'ID ' + gid; }
   function nextId(existing, prefix) { const set = new Set(existing); let n = 1; while (set.has(prefix + n)) n++; return prefix + n; }
   function ccw(ring) { let a = 0; for (let i = 0; i < ring.length - 1; i++) a += ring[i][0] * ring[i + 1][1] - ring[i + 1][0] * ring[i][1]; return a < 0 ? ring.slice().reverse() : ring; }
 

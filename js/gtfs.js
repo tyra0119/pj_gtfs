@@ -73,15 +73,18 @@
   function emptyFeed() {
     return { files: {}, locations: null, others: {} };
   }
+  // 表がなければ作る（新しい表は仕様の列をすべて持つ）。ある表の列は触らない（利用者が消した列を勝手に戻さない）
   function ensureTable(feed, name) {
     if (!feed.files[name]) {
       const spec = SPEC[name];
       feed.files[name] = { header: spec ? spec.cols.slice() : [], rows: [] };
-    } else if (SPEC[name]) {
-      // 仕様の列を header に足しておく（編集画面で使う）
-      for (const c of SPEC[name].cols) if (!feed.files[name].header.includes(c)) feed.files[name].header.push(c);
     }
     return feed.files[name];
+  }
+  // 仕様の列を header に足す（zip を読み込んだ直後に使う。編集画面で全部の列を出すため）
+  function addSpecColumns(feed, name) {
+    const t = feed.files[name]; if (!t || !SPEC[name]) return;
+    for (const c of SPEC[name].cols) if (!t.header.includes(c)) t.header.push(c);
   }
   function rows(feed, name) { return feed.files[name] ? feed.files[name].rows : []; }
   function newRow(name, init) {
@@ -112,7 +115,7 @@
         feed.others[base] = await entry.async('uint8array');
       }
     }
-    for (const name of ORDER) if (feed.files[name]) ensureTable(feed, name);
+    for (const name of ORDER) if (feed.files[name]) addSpecColumns(feed, name);
     return feed;
   }
 
@@ -193,5 +196,5 @@
     else { mk(o.tripId + '_1', from, to, o.headsign, 0); mk(o.tripId + '_2', to, from, o.headsignBack || '', 1); }
   }
 
-  window.GTFS = { SPEC, ORDER, parseCSV, tableFromCSV, tableToCSV, emptyFeed, ensureTable, rows, newRow, loadZip, saveZip, parseTime, fmtTime, templateFeed, addZoneTrip };
+  window.GTFS = { SPEC, ORDER, parseCSV, tableFromCSV, tableToCSV, emptyFeed, ensureTable, addSpecColumns, rows, newRow, loadZip, saveZip, parseTime, fmtTime, templateFeed, addZoneTrip };
 })();
