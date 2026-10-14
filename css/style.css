@@ -136,3 +136,22 @@ dialog menu { display: flex; justify-content: flex-end; gap: 8px; padding: 0; ma
 .form input.na, .form select.na { background: #f1f1f1; color: #999; }
 dialog form > label.bt1, dialog form > label.bt2 { flex-direction: row; flex-wrap: wrap; align-items: center; gap: 6px; }
 dialog form > label.bt1 input, dialog form > label.bt2 input { width: 90px; }
+
+/* 左の幅を変える仕切り */
+.splitter { width: 6px; cursor: col-resize; background: var(--line); flex: none; }
+.splitter:hover, .splitter.on { background: var(--primary); }
+body.resizing { cursor: col-resize; user-select: none; }
+body.resizing .map { pointer-events: none; }
+@media (max-width: 800px) { .splitter { display: none; } }
+/* 停留所の吹き出し */
+.maplibregl-popup-content { font: 13px/1.4 system-ui, sans-serif; padding: 10px 12px; border-radius: 8px; }
+.stop-popup b { font-size: 14px; }
+.stop-popup .row { margin-top: 6px; }
+
+/* 検証結果へ戻る */
+.backbar { display: flex; gap: 8px; align-items: center; padding: 6px 12px; background: #fff7e6; border-bottom: 1px solid #f0d9a8; }
+.backbar[hidden] { display: none; }
+.backbar span { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.issues li.current { outline: 2px solid var(--primary); }
+.stop-popup .popup-issue { margin-top: 4px; padding: 3px 6px; border-left: 3px solid var(--warn); background: #fff8e8; font-size: 12px; cursor: pointer; }
+.stop-popup .popup-issue.error { border-color: var(--err); background: #fdecec; }

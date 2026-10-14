@@ -44,9 +44,11 @@
       map.addLayer({ id: 'mids', type: 'circle', source: 'verts', filter: ['==', ['get', 'kind'], 'mid'], paint: { 'circle-radius': 4, 'circle-color': '#fde', 'circle-stroke-color': '#d07000', 'circle-stroke-width': 1 } });
       map.addSource('stops', { type: 'geojson', data: empty() });
       map.addLayer({ id: 'stops', type: 'circle', source: 'stops', paint: {
-        'circle-radius': ['interpolate', ['linear'], ['zoom'], 10, 3, 14, 6, 17, 9],
-        'circle-color': ['case', ['boolean', ['get', '_member'], false], '#e0442a', ['boolean', ['get', '_selected'], false], '#f0a030', '#2a9d4a'],
-        'circle-stroke-color': '#fff', 'circle-stroke-width': 1.5 } });
+        'circle-radius': ['interpolate', ['linear'], ['zoom'], 10, ['case', ['boolean', ['get', '_selected'], false], 7, 3], 14, ['case', ['boolean', ['get', '_selected'], false], 10, 6], 17, ['case', ['boolean', ['get', '_selected'], false], 13, 9]],
+        'circle-color': ['case', ['boolean', ['get', '_selected'], false], '#f0a030', ['boolean', ['get', '_member'], false], '#e0442a', '#2a9d4a'],
+        'circle-stroke-color': ['case', ['boolean', ['get', '_selected'], false], '#d07000', ['==', ['get', '_issue'], 'error'], '#d33', ['==', ['get', '_issue'], 'warn'], '#d78a00', '#fff'],
+        'circle-stroke-width': ['case', ['boolean', ['get', '_selected'], false], 3, ['has', '_issue'], 3, 1.5] } });
+      map.addLayer({ id: 'stop-issue', type: 'symbol', source: 'stops', filter: ['has', '_issue'], layout: { 'text-field': '!', 'text-size': 14, 'text-font': ['Noto Sans Regular'], 'text-offset': [0, -1.3], 'text-allow-overlap': true, 'text-ignore-placement': true }, paint: { 'text-color': ['case', ['==', ['get', '_issue'], 'error'], '#d33', '#d78a00'], 'text-halo-color': '#fff', 'text-halo-width': 1.5 } });
       map.addLayer({ id: 'stop-label', type: 'symbol', source: 'stops', minzoom: 14, layout: { 'text-field': ['get', 'stop_name'], 'text-size': 11, 'text-offset': [0, 1.1], 'text-anchor': 'top', 'text-font': ['Noto Sans Regular'], 'text-optional': true }, paint: { 'text-color': '#222', 'text-halo-color': '#fff', 'text-halo-width': 1.2 } });
       wire();
     });
@@ -128,13 +130,16 @@
     }
 
     // ---- データの反映 ----
-    function setStops(rows, memberIds, selectedId) {
+    // issues: Map(stop_id -> 'error' | 'warn')。縁取りと「!」で示す
+    function setStops(rows, memberIds, selectedId, issues) {
       state.memberIds = memberIds || new Set(); state.selectedStop = selectedId || null;
       const feats = [];
       for (const r of rows) {
         const lat = parseFloat(r.stop_lat), lon = parseFloat(r.stop_lon);
         if (isNaN(lat) || isNaN(lon)) continue;
-        feats.push({ type: 'Feature', properties: { stop_id: r.stop_id, stop_name: r.stop_name || '', _member: state.memberIds.has(r.stop_id), _selected: r.stop_id === state.selectedStop }, geometry: { type: 'Point', coordinates: [lon, lat] } });
+        const props = { stop_id: r.stop_id, stop_name: r.stop_name || '', _member: state.memberIds.has(r.stop_id), _selected: r.stop_id === state.selectedStop };
+        if (issues && issues.has(r.stop_id)) props._issue = issues.get(r.stop_id);
+        feats.push({ type: 'Feature', properties: props, geometry: { type: 'Point', coordinates: [lon, lat] } });
       }
       const src = map.getSource('stops'); if (src) src.setData({ type: 'FeatureCollection', features: feats });
       return feats;

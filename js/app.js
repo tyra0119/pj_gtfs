@@ -16,7 +16,7 @@
   const M = window.FlexMap.create($('#map'), {
     onStopClick(id) {
       if (M.getMode() === 'pickStops' && S.group) { toggleMember(S.group, id); return; }
-      S.stop = id; renderStopForm(); refreshMap();
+      selectStop(id, { popup: true });
     },
     onMapClick(ll) {
       if (M.getMode() !== 'addStop') return;
@@ -60,6 +60,11 @@
     onLocationClick(i) { S.loc = i; renderZones(); refreshMap(); },
     onLocateFallback() { const f = stopFeatures(); if (f.length) M.fitTo(f); },
   });
+  // 地図の入れ物の大きさが変わったら描き直す（初期化時に 0 だったり、ブラウザの表示領域が後から決まることがある）
+  window.addEventListener('resize', () => M.map.resize());
+  document.addEventListener('visibilitychange', () => M.map.resize());
+  M.map.once('load', () => { M.map.resize(); setTimeout(() => M.map.resize(), 300); });
+  if (window.ResizeObserver) new ResizeObserver(() => M.map.resize()).observe($('#map'));
   const modeBadge = el('div', { class: 'map-mode' });
   $('#map').appendChild(modeBadge);
   $('#map').addEventListener('modechange', e => {
@@ -70,9 +75,29 @@
   });
   function toggleMode(m) { M.setMode(M.getMode() === m ? 'none' : m); }
 
-  function stopFeatures() { return M.setStops(G.rows(S.feed, 'stops.txt'), memberSet(S.group), S.stop); }
+  function stopFeatures() { return M.setStops(G.rows(S.feed, 'stops.txt'), memberSet(S.group), S.stop, S.stopIssues); }
+  // 停留所ごとの検証結果（stops.txt の行、location_group_stops.txt の行、stop_times.txt の stop_id のある行）
+  function collectStopIssues() {
+    const m = new Map(), list = new Map();
+    const rowsOf = n => (S.feed.files[n] ? S.feed.files[n].rows : []);
+    for (const it of S.issues) {
+      if (it.level === 'info' || it.row == null) continue;
+      let sid = null;
+      const r = rowsOf(it.file)[it.row - 2];
+      if (!r) continue;
+      if (it.file === 'stops.txt') sid = r.stop_id;
+      else if (it.file === 'location_group_stops.txt' || it.file === 'stop_times.txt') sid = r.stop_id;
+      else if (it.file === 'transfers.txt' || it.file === 'pathways.txt') sid = r.from_stop_id;
+      if (!sid) continue;
+      if (it.level === 'error' || !m.has(sid)) m.set(sid, it.level);
+      if (!list.has(sid)) list.set(sid, []);
+      list.get(sid).push(it);
+    }
+    S.stopIssues = m; S.stopIssueList = list;
+  }
   function refreshMap(fit) {
     if (!S.feed) return;
+    M.map.resize();
     const feats = stopFeatures();
     M.setLocations(S.feed.locations, S.loc);
     if (fit) M.fitTo(feats.concat((S.feed.locations && S.feed.locations.features) || []));
@@ -169,6 +194,8 @@
     fs.value = cur;
     renderIssues();
     renderSteps();
+    collectStopIssues();
+    if (M.map.loaded() && M.map.getSource('stops')) stopFeatures();
     if (S.mode === 'table') markBadCells();
   }
   // 運行事業者がゼロから作るときの手順。済んだものに ✔、未完のものは該当タブへ飛べる。
@@ -230,6 +257,7 @@
         el('div', null, it.msg),
         el('div', { class: 'loc' }, `${it.file}${it.row ? ' ' + it.row + ' 行目' : ''}${it.field ? ' / ' + it.field + '（' + SPEC.label(it.file, it.field) + '）' : ''}`));
       if (it.fix) li.append(el('div', { class: 'fix' }, el('span', null, '修正案: ' + it.fix.label), el('button', { class: 'btn small', onclick: e => { e.stopPropagation(); applyFix(it); } }, '適用')));
+      li._issue = it;
       frag.append(li);
     }
     if (list.length > 500) frag.append(el('li', { class: 'info' }, `…ほか ${list.length - 500} 件`));
@@ -242,18 +270,42 @@
     cb.addEventListener('change', () => { if (cb.checked) S.disabledRules.delete(r.id); else S.disabledRules.add(r.id); runValidate(); });
     ruleList.append(el('label', null, cb, ' ' + r.label));
   }
+  // 検証結果から該当箇所へ。戻れるように、どこから来たかを覚えておく
   function jumpTo(it) {
+    S.backTo = { issue: it, scrollTop: $('#issueList').scrollTop };
+    $('#backInfo').textContent = it.msg;
+    $('#backBar').hidden = false;
+    document.querySelectorAll('#issueList li').forEach(li => li.classList.toggle('current', li._issue === it));
+    const rowsOf = n => (S.feed.files[n] ? S.feed.files[n].rows : []);
+    const row = it.row != null && S.feed.files[it.file] ? rowsOf(it.file)[it.row - 2] : null;
+    // 地図側: 停留所・グループ・区域のどれに関わるかで、地図を寄せる
+    const showGroup = gid => { if (!gid) return; S.group = gid; renderZones(); refreshMap(false); const ms = memberSet(gid); const feats = rowsOf('stops.txt').filter(r => ms.has(r.stop_id) && r.stop_lat && r.stop_lon).map(r => ({ geometry: { type: 'Point', coordinates: [+r.stop_lon, +r.stop_lat] } })); if (feats.length) M.fitTo(feats); };
+    const showLoc = lid => { const i = ((S.feed.locations && S.feed.locations.features) || []).findIndex(f => String(f.id) === String(lid)); if (i < 0) return; S.loc = i; renderZones(); refreshMap(false); M.fitTo([S.feed.locations.features[i]]); };
     if (it.file === 'locations.geojson') {
-      if (it.row) { S.loc = it.row - 2; setTab('zones'); renderZones(); refreshMap(); const f = S.feed.locations.features[S.loc]; if (f) M.fitTo([f]); }
+      if (it.row) { S.loc = it.row - 2; setTab('zones'); renderZones(); refreshMap(false); const f = S.feed.locations.features[S.loc]; if (f) M.fitTo([f]); }
       return;
     }
     if (!S.feed.files[it.file]) return;
     S.file = it.file; S.mode = 'table'; S.filter = ''; S.hlRow = it.row ? it.row - 2 : null; S.hlField = it.field;
     S.page = S.hlRow == null ? 0 : Math.floor(S.hlRow / PAGE_SIZE);
     $('#fileSelect').value = S.file;
+    document.querySelectorAll('.modes button').forEach(x => x.classList.toggle('active', x.dataset.mode === 'table'));
     setTab('files'); renderEditor();
-    if (it.file === 'stops.txt' && S.hlRow != null) { const r = S.feed.files[it.file].rows[S.hlRow]; if (r && r.stop_lat) { S.stop = r.stop_id; refreshMap(false); M.map.easeTo({ center: [+r.stop_lon, +r.stop_lat], zoom: Math.max(M.map.getZoom(), 15) }); } }
+    if (!row) return;
+    if (it.file === 'stops.txt') selectStop(row.stop_id, { center: true, popup: true });
+    else if (it.file === 'location_group_stops.txt') { showGroup(row.location_group_id); selectStop(row.stop_id, { center: true, popup: true }); }
+    else if (it.file === 'location_groups.txt') showGroup(row.location_group_id);
+    else if (it.file === 'stop_times.txt') { if (row.stop_id) selectStop(row.stop_id, { center: true, popup: true }); else if (row.location_group_id) showGroup(row.location_group_id); else if (row.location_id) showLoc(row.location_id); }
+    else if (it.file === 'transfers.txt' || it.file === 'pathways.txt') { if (row.from_stop_id) selectStop(row.from_stop_id, { center: true, popup: true }); }
   }
+  $('#btnBack').addEventListener('click', () => {
+    const b = S.backTo; if (!b) return;
+    setTab('validate');
+    const ul = $('#issueList'); ul.scrollTop = b.scrollTop;
+    const li = [...ul.querySelectorAll('li')].find(x => x._issue === b.issue);
+    if (li) { li.classList.add('current'); li.scrollIntoView({ block: 'center' }); }
+    $('#backBar').hidden = true;
+  });
 
   // ---------- タブ ----------
   function setTab(name) {
@@ -261,6 +313,8 @@
     document.querySelectorAll('.tab').forEach(t => t.classList.toggle('active', t.id === 'tab-' + name));
     if (name !== 'zones') M.setMode('none');
     if (name === 'changes') renderChanges();
+    if (name === 'validate') $('#backBar').hidden = true;
+    M.map.resize();
   }
   document.querySelectorAll('.tabs button').forEach(b => b.addEventListener('click', () => setTab(b.dataset.tab)));
 
@@ -512,6 +566,57 @@
     const t = S.feed.files['stops.txt']; t.rows = t.rows.filter(r => r.stop_id !== S.stop); S.stop = null;
     changed(); renderZones(); refreshMap(false);
   });
+  // 停留所を選ぶ。地図のクリック、「停留所を探す」、表からの移動で共通に使う
+  let stopPopup = null;
+  function selectStop(id, o) {
+    o = o || {};
+    S.stop = id;
+    renderStopForm(); refreshMap(false);
+    const r = id && G.rows(S.feed, 'stops.txt').find(x => x.stop_id === id);
+    if (stopPopup) { stopPopup.remove(); stopPopup = null; }
+    if (!r || isNaN(+r.stop_lat) || isNaN(+r.stop_lon)) return;
+    if (o.center) M.map.easeTo({ center: [+r.stop_lon, +r.stop_lat], zoom: Math.max(M.map.getZoom(), 15) });
+    if (!o.popup) return;
+    const inG = S.group ? memberSet(S.group).has(r.stop_id) : null;
+    const div = el('div', { class: 'stop-popup' },
+      el('b', null, r.stop_name || '(名前なし)'),
+      el('div', { class: 'muted small' }, `stop_id ${r.stop_id}${r.stop_code ? '　番号 ' + r.stop_code : ''}`),
+      el('div', { class: 'muted small' }, `${r.stop_lat}, ${r.stop_lon}`),
+      ...((S.stopIssueList && S.stopIssueList.get(r.stop_id)) || []).slice(0, 4).map(it => el('div', { class: 'popup-issue ' + it.level, onclick: () => { setTab('validate'); const li = [...$('#issueList').querySelectorAll('li')].find(x => x._issue === it); if (li) { li.classList.add('current'); li.scrollIntoView({ block: 'center' }); } } }, (it.level === 'error' ? '✖ ' : '△ ') + it.msg)),
+      el('div', { class: 'row' },
+        el('button', { class: 'btn small', onclick: () => { setTab('zones'); renderStopForm(); $('#stopForm').scrollIntoView({ block: 'center' }); } }, '編集'),
+        S.group ? el('button', { class: 'btn small', onclick: () => { toggleMember(S.group, r.stop_id); selectStop(r.stop_id, { popup: true }); } }, inG ? `"${S.group}" から外す` : `"${S.group}" に入れる`) : null,
+        el('button', { class: 'btn small', onclick: () => { S.file = 'stops.txt'; S.mode = 'table'; S.filter = r.stop_id; S.page = 0; S.hlRow = null; $('#fileSelect').value = S.file; document.querySelectorAll('.modes button').forEach(x => x.classList.toggle('active', x.dataset.mode === 'table')); setTab('files'); renderEditor(); } }, '表で見る')));
+    stopPopup = new maplibregl.Popup({ offset: 12, maxWidth: '300px' }).setLngLat([+r.stop_lon, +r.stop_lat]).setDOMContent(div).addTo(M.map);
+  }
+  $('#stopFind').addEventListener('change', e => {
+    if (!S.feed) return;
+    const q = e.target.value.trim().toLowerCase(); if (!q) return;
+    const rows = G.rows(S.feed, 'stops.txt');
+    const r = rows.find(x => x.stop_id.toLowerCase() === q) || rows.find(x => (x.stop_name || '').toLowerCase() === q) || rows.find(x => (x.stop_name || '').toLowerCase().includes(q) || x.stop_id.toLowerCase().includes(q));
+    if (!r) { alert('見つかりません: ' + e.target.value); return; }
+    ensureDatalists();
+    selectStop(r.stop_id, { popup: true, center: true });
+    e.target.value = '';
+  });
+  $('#stopFind').addEventListener('focus', () => { if (S.feed) ensureDatalists(); });
+
+  // 左の幅を変える仕切り。幅はブラウザに記憶する
+  (() => {
+    const side = document.querySelector('.side'), sp = $('#splitter');
+    try { const w = +localStorage.getItem('sideWidth'); if (w >= 280) side.style.width = w + 'px'; } catch (e) { /* 使えない環境 */ }
+    let dragging = false;
+    sp.addEventListener('pointerdown', e => { dragging = true; sp.classList.add('on'); document.body.classList.add('resizing'); sp.setPointerCapture(e.pointerId); e.preventDefault(); });
+    sp.addEventListener('pointermove', e => {
+      if (!dragging) return;
+      const w = Math.min(window.innerWidth - 320, Math.max(280, e.clientX - side.getBoundingClientRect().left));
+      side.style.width = w + 'px'; side.style.maxWidth = 'none';
+      M.map.resize();
+    });
+    const end = () => { if (!dragging) return; dragging = false; sp.classList.remove('on'); document.body.classList.remove('resizing'); try { localStorage.setItem('sideWidth', String(side.getBoundingClientRect().width | 0)); } catch (e) { /* 使えない環境 */ } M.map.resize(); };
+    sp.addEventListener('pointerup', end); sp.addEventListener('pointercancel', end);
+  })();
+
   function renderStopForm() {
     const box = $('#stopForm'); box.innerHTML = '';
     const r = S.stop && G.rows(S.feed, 'stops.txt').find(x => x.stop_id === S.stop);
@@ -618,6 +723,9 @@
   function nextId(existing, prefix) { const set = new Set(existing); let n = 1; while (set.has(prefix + n)) n++; return prefix + n; }
   function ccw(ring) { let a = 0; for (let i = 0; i < ring.length - 1; i++) a += ring[i][0] * ring[i + 1][1] - ring[i + 1][0] * ring[i][1]; return a < 0 ? ring.slice().reverse() : ring; }
 
+  // 開発者ツールから触れるように（デバッグ用）
+  window.FlexApp = { S, M, refreshMap, runValidate, selectStop };
+
   // ---------- 起動: 前回の続き ----------
   (async () => {
     try {
@@ -625,7 +733,8 @@
       if (saved && saved.feed) {
         $('#resumeInfo').textContent = `「${saved.name || '無題'}」を ${new Date(saved.savedAt).toLocaleString('ja-JP')} に自動保存しています。`;
         const dlg = $('#resumeDialog');
-        dlg.addEventListener('close', () => { if (dlg.returnValue === 'resume') loadFeed(saved.feed, saved.name, saved.original || null); else STORE.clear(); }, { once: true });
+        // 「捨てる」と明示したときだけ消す。Esc や外側クリックで閉じたときは続きから（消すのは取り返しがつかない）
+        dlg.addEventListener('close', () => { if (dlg.returnValue === 'discard') STORE.clear(); else loadFeed(saved.feed, saved.name, saved.original || null); }, { once: true });
         dlg.showModal();
       }
     } catch (e) { console.warn('自動保存の読み込みに失敗', e); }
