@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>GTFS-Flex 作成・検証ツール</title>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/maplibre-gl/4.7.1/maplibre-gl.min.css">
-<link rel="stylesheet" href="css/style.css?v=eca6dd5-mv8pov1n">
+<link rel="stylesheet" href="css/style.css?v=b5704c4-mv8q2cpy">
 </head>
 <body>
 <header class="topbar">
@@ -63,6 +63,7 @@
           <button data-mode="form">フォーム</button>
           <button data-mode="text">テキスト</button>
         </div>
+        <span class="muted small legend"><span class="req">*</span> 必須　<span class="cond">※</span> 条件付きで必須</span>
       </div>
       <div id="editor"></div>
     </section>
@@ -74,7 +75,7 @@
         <button id="btnGroupAdd" class="btn small">追加</button>
         <button id="btnGroupDel" class="btn small danger">削除</button>
       </div>
-      <div class="row"><label>名前 <input id="groupName" type="text"></label></div>
+      <div class="row"><label>名前 <small class="muted">location_group_name</small> <input id="groupName" type="text"></label></div>
       <div class="row">
         <button id="btnPickStops" class="btn small toggle">地図で停留所を出し入れ</button>
         <button id="btnGroupAll" class="btn small">全停留所を入れる</button>
@@ -124,8 +125,9 @@
 <dialog id="newDialog">
   <form method="dialog" id="newForm">
     <h3>新規作成</h3>
-    <label>事業者名 <input name="agencyName" required placeholder="○○町"></label>
-    <label>事業者 URL <input name="agencyUrl" type="url" required placeholder="https://www.town.example.lg.jp/"></label>
+    <p class="muted small"><span class="req">*</span> は必須です。</p>
+    <label>事業者名 <span class="req">*</span> <input name="agencyName" required placeholder="○○町"></label>
+    <label>事業者 URL <span class="req">*</span> <input name="agencyUrl" type="url" required placeholder="https://www.town.example.lg.jp/"></label>
     <label>予約の電話番号 <input name="phone" placeholder="0120-000-000"></label>
     <label>サービス名（路線名） <input name="routeName" placeholder="○○デマンド交通"></label>
     <label>区域の表し方
@@ -138,7 +140,7 @@
     <label>運行曜日 <span class="days">
       <label><input type="checkbox" name="d0" checked>月</label><label><input type="checkbox" name="d1" checked>火</label><label><input type="checkbox" name="d2" checked>水</label><label><input type="checkbox" name="d3" checked>木</label><label><input type="checkbox" name="d4" checked>金</label><label><input type="checkbox" name="d5">土</label><label><input type="checkbox" name="d6">日</label>
     </span></label>
-    <label>期間 <input name="startDate" placeholder="20260401" pattern="\d{8}" required> 〜 <input name="endDate" placeholder="20270331" pattern="\d{8}" required></label>
+    <label>期間 <span class="req">*</span> <input name="startDate" placeholder="20260401" pattern="\d{8}" required> 〜 <input name="endDate" placeholder="20270331" pattern="\d{8}" required></label>
     <label>乗降時間帯 <input name="windowStart" value="08:00:00" pattern="\d{1,2}:\d{2}:\d{2}"> 〜 <input name="windowEnd" value="17:00:00" pattern="\d{1,2}:\d{2}:\d{2}"></label>
     <label>予約の種類
       <select name="bookingType">
@@ -166,13 +168,13 @@
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/maplibre-gl/4.7.1/maplibre-gl.min.js"></script>
-<script src="js/spec.js?v=eca6dd5-mv8pov1n"></script>
-<script src="js/gtfs.js?v=eca6dd5-mv8pov1n"></script>
-<script src="js/validate.js?v=eca6dd5-mv8pov1n"></script>
-<script src="js/map.js?v=eca6dd5-mv8pov1n"></script>
-<script src="js/odpt.js?v=eca6dd5-mv8pov1n"></script>
-<script src="js/store.js?v=eca6dd5-mv8pov1n"></script>
-<script src="js/diff.js?v=eca6dd5-mv8pov1n"></script>
-<script src="js/app.js?v=eca6dd5-mv8pov1n"></script>
+<script src="js/spec.js?v=b5704c4-mv8q2cpy"></script>
+<script src="js/gtfs.js?v=b5704c4-mv8q2cpy"></script>
+<script src="js/validate.js?v=b5704c4-mv8q2cpy"></script>
+<script src="js/map.js?v=b5704c4-mv8q2cpy"></script>
+<script src="js/odpt.js?v=b5704c4-mv8q2cpy"></script>
+<script src="js/store.js?v=b5704c4-mv8q2cpy"></script>
+<script src="js/diff.js?v=b5704c4-mv8q2cpy"></script>
+<script src="js/app.js?v=b5704c4-mv8q2cpy"></script>
 </body>
 </html>

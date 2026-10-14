@@ -155,3 +155,10 @@ body.resizing .map { pointer-events: none; }
 .issues li.current { outline: 2px solid var(--primary); }
 .stop-popup .popup-issue { margin-top: 4px; padding: 3px 6px; border-left: 3px solid var(--warn); background: #fff8e8; font-size: 12px; cursor: pointer; }
 .stop-popup .popup-issue.error { border-color: var(--err); background: #fdecec; }
+.req { color: var(--err); font-weight: 700; }
+.cond { color: var(--warn); font-weight: 700; }
+table.grid th .req, table.grid th .cond { margin-left: 2px; }
+.legend { margin-left: auto; }
+dialog form > label .req { display: inline; }
+table.grid tr.cur td { background: #eef4ff; }
+table.grid tr.hl.cur td { background: #fff5d6; }

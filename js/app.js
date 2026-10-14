@@ -129,7 +129,8 @@
     fillFileSelect();
     runValidate();
     renderEditor(); renderZones(); renderTrips(); renderChanges();
-    if (M.map.loaded()) refreshMap(true); else M.map.once('load', () => refreshMap(true));
+    // map.loaded() はタイル待ちでも false になるので、層ができているかで判断する
+    if (M.map.getSource('stops')) refreshMap(true); else M.map.once('load', () => refreshMap(true));
     saver.schedule();
   }
   $('#fileInput').addEventListener('change', async e => {
@@ -195,7 +196,7 @@
     renderIssues();
     renderSteps();
     collectStopIssues();
-    if (M.map.loaded() && M.map.getSource('stops')) stopFeatures();
+    if (M.map.getSource('stops')) stopFeatures();
     if (S.mode === 'table') markBadCells();
   }
   // 運行事業者がゼロから作るときの手順。済んだものに ✔、未完のものは該当タブへ飛べる。
@@ -278,9 +279,6 @@
     document.querySelectorAll('#issueList li').forEach(li => li.classList.toggle('current', li._issue === it));
     const rowsOf = n => (S.feed.files[n] ? S.feed.files[n].rows : []);
     const row = it.row != null && S.feed.files[it.file] ? rowsOf(it.file)[it.row - 2] : null;
-    // 地図側: 停留所・グループ・区域のどれに関わるかで、地図を寄せる
-    const showGroup = gid => { if (!gid) return; S.group = gid; renderZones(); refreshMap(false); const ms = memberSet(gid); const feats = rowsOf('stops.txt').filter(r => ms.has(r.stop_id) && r.stop_lat && r.stop_lon).map(r => ({ geometry: { type: 'Point', coordinates: [+r.stop_lon, +r.stop_lat] } })); if (feats.length) M.fitTo(feats); };
-    const showLoc = lid => { const i = ((S.feed.locations && S.feed.locations.features) || []).findIndex(f => String(f.id) === String(lid)); if (i < 0) return; S.loc = i; renderZones(); refreshMap(false); M.fitTo([S.feed.locations.features[i]]); };
     if (it.file === 'locations.geojson') {
       if (it.row) { S.loc = it.row - 2; setTab('zones'); renderZones(); refreshMap(false); const f = S.feed.locations.features[S.loc]; if (f) M.fitTo([f]); }
       return;
@@ -291,12 +289,21 @@
     $('#fileSelect').value = S.file;
     document.querySelectorAll('.modes button').forEach(x => x.classList.toggle('active', x.dataset.mode === 'table'));
     setTab('files'); renderEditor();
-    if (!row) return;
-    if (it.file === 'stops.txt') selectStop(row.stop_id, { center: true, popup: true });
-    else if (it.file === 'location_group_stops.txt') { showGroup(row.location_group_id); selectStop(row.stop_id, { center: true, popup: true }); }
-    else if (it.file === 'location_groups.txt') showGroup(row.location_group_id);
-    else if (it.file === 'stop_times.txt') { if (row.stop_id) selectStop(row.stop_id, { center: true, popup: true }); else if (row.location_group_id) showGroup(row.location_group_id); else if (row.location_id) showLoc(row.location_id); }
-    else if (it.file === 'transfers.txt' || it.file === 'pathways.txt') { if (row.from_stop_id) selectStop(row.from_stop_id, { center: true, popup: true }); }
+    if (row) showRowOnMap(it.file, row);
+  }
+  // 行が地図のどこに当たるかを示す。検証結果からの移動と、ファイル編集で行を選んだときに使う
+  function showGroup(gid) { if (!gid) return; S.group = gid; renderZones(); refreshMap(false); const ms = memberSet(gid); const feats = G.rows(S.feed, 'stops.txt').filter(r => ms.has(r.stop_id) && r.stop_lat && r.stop_lon).map(r => ({ geometry: { type: 'Point', coordinates: [+r.stop_lon, +r.stop_lat] } })); if (feats.length) M.fitTo(feats); }
+  function showLoc(lid) { const i = ((S.feed.locations && S.feed.locations.features) || []).findIndex(f => String(f.id) === String(lid)); if (i < 0) return; S.loc = i; renderZones(); refreshMap(false); M.fitTo([S.feed.locations.features[i]]); }
+  let lastShown = null;
+  function showRowOnMap(file, row) {
+    if (!row || lastShown === row) return; // 同じ行で何度も寄せない
+    lastShown = row;
+    if (file === 'stops.txt') { if (row.stop_id) selectStop(row.stop_id, { center: true, popup: true }); }
+    else if (file === 'location_group_stops.txt') { showGroup(row.location_group_id); if (row.stop_id) selectStop(row.stop_id, { center: true, popup: true }); }
+    else if (file === 'location_groups.txt') showGroup(row.location_group_id);
+    else if (file === 'stop_times.txt') { if (row.stop_id) selectStop(row.stop_id, { center: true, popup: true }); else if (row.location_group_id) showGroup(row.location_group_id); else if (row.location_id) showLoc(row.location_id); }
+    else if (file === 'transfers.txt' || file === 'pathways.txt') { if (row.from_stop_id) selectStop(row.from_stop_id, { center: true, popup: true }); }
+    else if (file === 'stop_areas.txt') { if (row.stop_id) selectStop(row.stop_id, { center: true, popup: true }); }
   }
   $('#btnBack').addEventListener('click', () => {
     const b = S.backTo; if (!b) return;
@@ -401,13 +408,15 @@
     const wrap = el('div', { class: 'tablewrap' });
     const table = el('table', { class: 'grid' });
     const thead = el('tr', null, el('th', null, '#'));
-    for (const c of cols) { const fd = SPEC.field(S.file, c); thead.append(el('th', { class: fd && fd.required === true ? 'req' : '', title: fd && fd.help ? fd.help : '' }, c, el('small', null, fd ? fd.label : '仕様外'))); }
+    for (const c of cols) { const fd = SPEC.field(S.file, c); thead.append(el('th', { class: fd && fd.required === true ? 'req' : '', title: (fd && fd.help ? fd.help + '\n' : '') + reqTitle(fd) }, c, reqMark(fd), el('small', null, fd ? fd.label : '仕様外'))); }
     thead.append(el('th', null, ''));
     table.append(el('thead', null, thead));
     const tbody = el('tbody');
     for (const i of idx.slice(S.page * PAGE_SIZE, (S.page + 1) * PAGE_SIZE)) {
       const r = t.rows[i];
       const tr = el('tr', { class: i === S.hlRow ? 'hl' : '', 'data-row': i });
+      const pick = () => { tbody.querySelectorAll('tr.cur').forEach(x => x.classList.remove('cur')); tr.classList.add('cur'); showRowOnMap(S.file, r); };
+      tr.addEventListener('focusin', pick); tr.addEventListener('click', pick);
       tr.append(el('td', { class: 'rownum' }, String(i + 2)));
       for (const c of cols) tr.append(el('td', { 'data-col': c }, cellInput(S.file, c, r, () => { if (S.file === 'stops.txt' || S.file === 'location_group_stops.txt' || S.file === 'location_groups.txt') refreshMap(false); })));
       tr.append(el('td', { class: 'del' }, el('button', { title: 'この行を消す', onclick: () => { if (confirm((i + 2) + ' 行目を消しますか')) { t.rows.splice(i, 1); changed(); renderEditor(); refreshMap(false); } } }, '✕')));
@@ -448,12 +457,13 @@
       el('button', { class: 'btn small', onclick: () => { t.rows.push(G.newRow(S.file, defaultsFor(S.file))); S.formIndex = t.rows.length - 1; changed(); renderEditor(); } }, '＋ 行を足す'),
       el('button', { class: 'btn small danger', onclick: () => { if (confirm('この行を消しますか')) { t.rows.splice(S.formIndex, 1); changed(); renderEditor(); } } }, '消す'));
     box.append(nav);
+    showRowOnMap(S.file, r);
     const form = el('div', { class: 'form' });
     const cols = spec ? spec.fields.map(f => f.name).concat(t.header.filter(c => !spec.fields.some(f => f.name === c))) : t.header;
     const inputs = {};
     for (const c of cols) {
       const fd = SPEC.field(S.file, c);
-      form.append(el('label', { title: c }, (fd ? fd.label : c) + ' ', el('small', { class: 'muted' }, c), fd && fd.required === true ? el('span', { class: 'req' }, ' *') : null));
+      form.append(el('label', { title: c + (reqTitle(fd) ? '\n' + reqTitle(fd) : '') }, (fd ? fd.label : c) + ' ', el('small', { class: 'muted' }, c), reqMark(fd)));
       inputs[c] = cellInput(S.file, c, r, () => { refreshMap(false); if (S.file === 'booking_rules.txt') applyBookingEnable(); });
       form.append(inputs[c]);
       if (fd && fd.help) form.append(el('div', { class: 'help' }, fd.help));
@@ -516,7 +526,7 @@
     const f = feats[S.loc];
     if (f) {
       const idIn = el('input', { value: f.id == null ? '' : f.id }); idIn.addEventListener('change', () => { f.id = idIn.value.trim(); changed(); renderZones(); refreshMap(false); });
-      lf.append(el('label', null, '区域ID ', el('small', { class: 'muted' }, 'id')), idIn);
+      lf.append(el('label', { title: '必須' }, '区域ID ', el('small', { class: 'muted' }, 'id'), el('span', { class: 'req' }, ' *')), idIn);
       f.properties = f.properties || {};
       for (const p of SPEC.LOCATION_PROPS) {
         const inp = el('input', { value: f.properties[p.name] || '' });
@@ -622,7 +632,7 @@
     const r = S.stop && G.rows(S.feed, 'stops.txt').find(x => x.stop_id === S.stop);
     if (!r) { box.append(el('div', { class: 'muted' }, '停留所が選ばれていません')); return; }
     for (const c of ['stop_id', 'stop_name', 'stop_code', 'stop_lat', 'stop_lon', 'stop_desc']) {
-      box.append(el('label', null, SPEC.label('stops.txt', c) + ' ', el('small', { class: 'muted' }, c)), cellInput('stops.txt', c, r, () => refreshMap(false)));
+      box.append(el('label', { title: reqTitle(SPEC.field('stops.txt', c)) }, SPEC.label('stops.txt', c) + ' ', el('small', { class: 'muted' }, c), reqMark(SPEC.field('stops.txt', c))), cellInput('stops.txt', c, r, () => refreshMap(false)));
     }
     if (S.group) {
       const inG = memberSet(S.group).has(r.stop_id);
@@ -650,8 +660,8 @@
       rule: sel(rules), headsign: el('input', { value: '' }), headsignBack: el('input', { value: '' }),
       roundTrip: el('input', { type: 'checkbox', checked: '' }), intraZone: el('input', { type: 'checkbox' }),
     };
-    const rows = [['便ID', 'trip_id', w.tripId], ['路線', 'route_id', w.route], ['運行日', 'service_id', w.service], ['乗る場所', 'stop_sequence 1', w.from], ['降りる場所', '最後の stop_sequence', w.to], ['乗降時間帯 開始', 'start_pickup_drop_off_window', w.start], ['乗降時間帯 終了', 'end_pickup_drop_off_window', w.end], ['予約ルール', 'pickup/drop_off_booking_rule_id', w.rule], ['行き先表示', 'trip_headsign', w.headsign]];
-    for (const [lab, col, inp] of rows) f.append(el('label', null, lab + ' ', el('small', { class: 'muted' }, col)), inp);
+    const rows = [['便ID', 'trip_id', w.tripId, true], ['路線', 'route_id', w.route, true], ['運行日', 'service_id', w.service, true], ['乗る場所', 'stop_sequence 1', w.from, true], ['降りる場所', '最後の stop_sequence', w.to, true], ['乗降時間帯 開始', 'start_pickup_drop_off_window', w.start, true], ['乗降時間帯 終了', 'end_pickup_drop_off_window', w.end, true], ['予約ルール', 'pickup/drop_off_booking_rule_id', w.rule, false], ['行き先表示', 'trip_headsign', w.headsign, false]];
+    for (const [lab, col, inp, req] of rows) f.append(el('label', { title: req ? '必須' : '' }, lab + ' ', el('small', { class: 'muted' }, col), req ? el('span', { class: 'req' }, ' *') : null), inp);
     const optRound = el('div', { class: 'row' }, el('label', null, w.roundTrip, ' 復路の便も作る（便ID に _1 / _2 を付け、direction_id 0 / 1）'));
     const optBack = el('label', null, '復路の行き先表示 ', el('small', { class: 'muted' }, 'trip_headsign'));
     const optIntra = el('div', { class: 'row' }, el('label', null, w.intraZone, ' 「乗る場所」の区域の中だけの利用もできる（その区域の行を往復とも 2 つにする）'));
@@ -720,11 +730,19 @@
   }
 
   // ---------- 小物 ----------
+  // 必須の印: * は必須、※ は条件付きで必須（状況によって必須になる。検証で指摘する）
+  function reqMark(fd) {
+    if (!fd) return null;
+    if (fd.required === true) return el('span', { class: 'req' }, ' *');
+    if (fd.required === 'cond') return el('span', { class: 'cond' }, ' ※');
+    return null;
+  }
+  function reqTitle(fd) { return !fd ? '' : fd.required === true ? '必須' : fd.required === 'cond' ? '条件付きで必須' : ''; }
   function nextId(existing, prefix) { const set = new Set(existing); let n = 1; while (set.has(prefix + n)) n++; return prefix + n; }
   function ccw(ring) { let a = 0; for (let i = 0; i < ring.length - 1; i++) a += ring[i][0] * ring[i + 1][1] - ring[i + 1][0] * ring[i][1]; return a < 0 ? ring.slice().reverse() : ring; }
 
   // 開発者ツールから触れるように（デバッグ用）
-  window.FlexApp = { S, M, refreshMap, runValidate, selectStop };
+  window.FlexApp = { S, M, refreshMap, runValidate, selectStop, loadFeed };
 
   // ---------- 起動: 前回の続き ----------
   (async () => {
@@ -734,7 +752,17 @@
         $('#resumeInfo').textContent = `「${saved.name || '無題'}」を ${new Date(saved.savedAt).toLocaleString('ja-JP')} に自動保存しています。`;
         const dlg = $('#resumeDialog');
         // 「捨てる」と明示したときだけ消す。Esc や外側クリックで閉じたときは続きから（消すのは取り返しがつかない）
-        dlg.addEventListener('close', () => { if (dlg.returnValue === 'discard') STORE.clear(); else loadFeed(saved.feed, saved.name, saved.original || null); }, { once: true });
+        // ボタンの click で直接扱う（環境によって dialog の close イベントが来ないことがあった）。close / cancel は保険
+        let handled = false;
+        const act = v => {
+          if (handled) return; handled = true;
+          if (v === 'discard') { STORE.clear(); return; }
+          loadFeed(saved.feed, saved.name, saved.original || null).catch(e => { console.error('前回の続きの読み込みに失敗', e); alert('前回の続きを読み込めませんでした: ' + e.message); });
+        };
+        dlg.querySelector('button[value=resume]').addEventListener('click', () => act('resume'));
+        dlg.querySelector('button[value=discard]').addEventListener('click', () => act('discard'));
+        dlg.addEventListener('close', () => act(dlg.returnValue), { once: true });
+        dlg.addEventListener('cancel', () => act('resume'), { once: true });
         dlg.showModal();
       }
     } catch (e) { console.warn('自動保存の読み込みに失敗', e); }
