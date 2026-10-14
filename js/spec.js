@@ -110,6 +110,11 @@
         { name: 'timepoint', label: '時刻の正確さ', type: 'enum', values: { '0': '0: おおよそ', '1': '1: 正確' } },
         { name: 'pickup_booking_rule_id', label: '乗車の予約ルール', type: 'ref', ref: 'booking_rules.txt' },
         { name: 'drop_off_booking_rule_id', label: '降車の予約ルール', type: 'ref', ref: 'booking_rules.txt' },
+        // v2 ドラフト（2020〜2023）だけにあった列。正式版にはない。読み込んだら残すが、新しく作るときは使わない
+        { name: 'mean_duration_factor', label: '所要時間の係数 (ドラフト)', type: 'float', draft: true },
+        { name: 'mean_duration_offset', label: '所要時間の加算 (ドラフト)', type: 'float', draft: true },
+        { name: 'safe_duration_factor', label: '安全側の係数 (ドラフト)', type: 'float', draft: true },
+        { name: 'safe_duration_offset', label: '安全側の加算 (ドラフト)', type: 'float', draft: true },
       ],
     },
     'calendar.txt': {

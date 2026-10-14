@@ -89,6 +89,7 @@
           const required = spec.fields.filter(x => x.required === true);
           for (const fd of required) if (!present.has(fd.name) && t.rows.length) err(name, null, fd.name, `必須列 ${fd.name}（${fd.label}）がない`, 'missing_column');
           for (const col of t.header) if (col && !spec.fields.some(x => x.name === col)) info(name, null, col, `仕様にない列 ${col}（そのまま書き出す）`, 'unknown_column');
+          for (const fd of spec.fields) if (fd.draft && present.has(fd.name) && !t.rows.some(r => r[fd.name])) { /* 空のドラフト列は書き出しで省かれるので何も言わない */ }
           if (spec.key) {
             const seen = new Map();
             t.rows.forEach((r, i) => {
@@ -131,6 +132,10 @@
     {
       id: 'flex_presence', label: 'Flex の要素があるか', run(c) {
         const { R, has, info } = c;
+        const stH = c.F['stop_times.txt'] ? c.F['stop_times.txt'].header : [];
+        const draftCols = (window.FlexVersions ? window.FlexVersions.DRAFT_ONLY_COLUMNS : []).filter(col => stH.includes(col) && R('stop_times.txt').some(r => r[col]));
+        if (draftCols.length) info('stop_times.txt', null, draftCols[0], `ドラフト版（2020〜23）だけの列 ${draftCols.join(', ')} に値がある。正式版の経路検索は読まない（害はない）`, 'draft_column');
+        if (c.feed.flexVersion && c.feed.flexVersion !== 'canonical') info('stop_times.txt', null, '', `読み込んだデータは ${window.FlexVersions.VERSIONS[c.feed.flexVersion].short} の形だったので、正式版に直して扱っている（書き出しの形式は上で選べる）`, 'converted');
         const usesFlex = R('stop_times.txt').some(r => r.location_group_id || r.location_id || r.start_pickup_drop_off_window || r.end_pickup_drop_off_window) || has('booking_rules.txt') || has('location_groups.txt') || c.locs.length > 0;
         if (!usesFlex) info('stop_times.txt', null, '', 'GTFS-Flex の要素（乗降時間帯・区域・予約ルール）が見当たらない。通常の GTFS として扱う', 'not_flex');
       },

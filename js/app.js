@@ -121,6 +121,11 @@
 
   // ---------- 読み込み ----------
   async function loadFeed(feed, name, original) {
+    // 古い版（v2 ドラフト）なら正式版へ直してから扱う。何を直したかは概要に出す
+    if (!feed.flexVersion) {
+      const conv = window.FlexVersions.toCanonical(feed);
+      feed.flexVersion = conv.version; feed.conversionNotes = conv.notes;
+    }
     S.feed = feed; S.name = name; S.dirty = false; S.hlRow = null; S.page = 0; S.filter = '';
     S.original = original || structuredClone(feed);
     S.diffFile = '';
@@ -175,8 +180,10 @@
   // ---------- 書き出し ----------
   $('#btnExport').addEventListener('click', async () => {
     if (!S.feed) return;
-    const blob = await G.saveZip(S.feed);
-    const a = el('a', { href: URL.createObjectURL(blob), download: (S.name || 'gtfs-flex').replace(/\.zip$/i, '') + '.zip' });
+    const ver = $('#exportVersion').value;
+    if (ver !== 'canonical' && !confirm(`${window.FlexVersions.VERSIONS[ver].label} の形で書き出します。\n正式版の経路検索（ODPT への提供も）には正式版を使ってください。続けますか？`)) return;
+    const blob = await G.saveZip(window.FlexVersions.fromCanonical(S.feed, ver));
+    const a = el('a', { href: URL.createObjectURL(blob), download: (S.name || 'gtfs-flex').replace(/\.zip$/i, '') + (ver === 'canonical' ? '' : '-' + ver) + '.zip' });
     document.body.append(a); a.click(); a.remove();
   });
 
@@ -190,7 +197,9 @@
     const cnt = name => (F[name] ? F[name].rows.length : 0);
     const flexKind = S.feed.locations && S.feed.locations.features.length ? '区域ポリゴン' : (cnt('location_groups.txt') ? '停留所グループ' : '（区域なし）');
     const ag = (F['agency.txt'] && F['agency.txt'].rows[0]) || {};
-    $('#feedSummary').textContent = `${S.name}\n事業者: ${ag.agency_name || '-'}　路線 ${cnt('routes.txt')}　便 ${cnt('trips.txt')}　停留所 ${cnt('stops.txt')}　stop_times ${cnt('stop_times.txt')} 行\n区域の表し方: ${flexKind}　グループ ${cnt('location_groups.txt')}　ポリゴン ${S.feed.locations ? S.feed.locations.features.length : 0}　予約ルール ${cnt('booking_rules.txt')}\n` + (n('error') === 0 ? '✔ エラーはありません' : `✖ エラーが ${n('error')} 件あります`);
+    const VER = window.FlexVersions.VERSIONS;
+    const verLine = S.feed.flexVersion && S.feed.flexVersion !== 'canonical' ? `\n読み込んだ形式: ${VER[S.feed.flexVersion].short} → 正式版に直して扱っています${(S.feed.conversionNotes || []).length ? '\n　' + S.feed.conversionNotes.join('\n　') : ''}` : '';
+    $('#feedSummary').textContent = `${S.name}\n事業者: ${ag.agency_name || '-'}　路線 ${cnt('routes.txt')}　便 ${cnt('trips.txt')}　停留所 ${cnt('stops.txt')}　stop_times ${cnt('stop_times.txt')} 行\n区域の表し方: ${flexKind}　グループ ${cnt('location_groups.txt')}　ポリゴン ${S.feed.locations ? S.feed.locations.features.length : 0}　予約ルール ${cnt('booking_rules.txt')}${verLine}\n` + (n('error') === 0 ? '✔ エラーはありません' : `✖ エラーが ${n('error')} 件あります`);
     const fs = $('#filterFile'); const cur = fs.value; fs.innerHTML = '<option value="">すべてのファイル</option>';
     for (const f of [...new Set(S.issues.map(i => i.file))].sort()) fs.append(el('option', { value: f }, f));
     fs.value = cur;

@@ -77,14 +77,14 @@
   function ensureTable(feed, name) {
     if (!feed.files[name]) {
       const spec = SPEC[name];
-      feed.files[name] = { header: spec ? spec.cols.slice() : [], rows: [] };
+      feed.files[name] = { header: spec ? spec.fields.filter(f => !f.draft).map(f => f.name) : [], rows: [] };
     }
     return feed.files[name];
   }
   // 仕様の列を header に足す（zip を読み込んだ直後に使う。編集画面で全部の列を出すため）
   function addSpecColumns(feed, name) {
     const t = feed.files[name]; if (!t || !SPEC[name]) return;
-    for (const c of SPEC[name].cols) if (!t.header.includes(c)) t.header.push(c);
+    for (const f of SPEC[name].fields) if (!f.draft && !t.header.includes(f.name)) t.header.push(f.name);
   }
   function rows(feed, name) { return feed.files[name] ? feed.files[name].rows : []; }
   function newRow(name, init) {

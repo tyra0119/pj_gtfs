@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>GTFS-Flex 作成・検証ツール</title>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/maplibre-gl/4.7.1/maplibre-gl.min.css">
-<link rel="stylesheet" href="css/style.css?v=0d286b5-mv8qdzoq">
+<link rel="stylesheet" href="css/style.css?v=b1c7681-mv8qlyfu">
 </head>
 <body>
 <header class="topbar">
@@ -18,6 +18,11 @@
     </div>
     <button id="btnNew" class="btn">新規作成</button>
     <button id="btnValidate" class="btn primary">検証する</button>
+    <select id="exportVersion" title="書き出す GTFS-Flex の版。ふつうは正式版">
+      <option value="canonical">正式版（2024-03〜）</option>
+      <option value="draft2022">v2 後期ドラフト（2022〜23）</option>
+      <option value="draft2020">v2 初期ドラフト（2020）</option>
+    </select>
     <button id="btnExport" class="btn">zip に書き出す</button>
     <span id="saveStatus" class="status">自動保存: まだ</span>
   </div>
@@ -168,13 +173,14 @@
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/maplibre-gl/4.7.1/maplibre-gl.min.js"></script>
-<script src="js/spec.js?v=0d286b5-mv8qdzoq"></script>
-<script src="js/gtfs.js?v=0d286b5-mv8qdzoq"></script>
-<script src="js/validate.js?v=0d286b5-mv8qdzoq"></script>
-<script src="js/map.js?v=0d286b5-mv8qdzoq"></script>
-<script src="js/odpt.js?v=0d286b5-mv8qdzoq"></script>
-<script src="js/store.js?v=0d286b5-mv8qdzoq"></script>
-<script src="js/diff.js?v=0d286b5-mv8qdzoq"></script>
-<script src="js/app.js?v=0d286b5-mv8qdzoq"></script>
+<script src="js/spec.js?v=b1c7681-mv8qlyfu"></script>
+<script src="js/gtfs.js?v=b1c7681-mv8qlyfu"></script>
+<script src="js/versions.js?v=b1c7681-mv8qlyfu"></script>
+<script src="js/validate.js?v=b1c7681-mv8qlyfu"></script>
+<script src="js/map.js?v=b1c7681-mv8qlyfu"></script>
+<script src="js/odpt.js?v=b1c7681-mv8qlyfu"></script>
+<script src="js/store.js?v=b1c7681-mv8qlyfu"></script>
+<script src="js/diff.js?v=b1c7681-mv8qlyfu"></script>
+<script src="js/app.js?v=b1c7681-mv8qlyfu"></script>
 </body>
 </html>
