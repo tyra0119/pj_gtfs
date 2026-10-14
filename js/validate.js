@@ -149,7 +149,7 @@
           if (R('agency.txt').length > 1 && !r.agency_id) err('agency.txt', i, 'agency_id', '事業者が複数あるときは agency_id が必須', 'cond_required', c.setVal(r, 'agency_id', 'agency' + (i + 1), null, false));
         });
         R('feed_info.txt').forEach((r, i) => {
-          for (const k of ['feed_start_date', 'feed_end_date', 'feed_version']) if (!r[k]) warn('feed_info.txt', i, k, `${k} が空（公開するデータでは有効期間と版を入れる）`, 'publish_missing', k === 'feed_version' ? c.setVal(r, 'feed_version', c.today, `feed_version を今日の日付 ${c.today} にする`, false) : (R('calendar.txt')[0] && R('calendar.txt')[0][k === 'feed_start_date' ? 'start_date' : 'end_date'] ? c.setVal(r, k, R('calendar.txt')[0][k === 'feed_start_date' ? 'start_date' : 'end_date'], `calendar.txt の期間 ${R('calendar.txt')[0][k === 'feed_start_date' ? 'start_date' : 'end_date']} を入れる`, false) : null));
+          for (const k of ['feed_start_date', 'feed_end_date', 'feed_version']) if (!r[k]) err('feed_info.txt', i, k, `${k} が空（GTFS-JP v4 では必須。有効期間と版）`, 'publish_missing', k === 'feed_version' ? c.setVal(r, 'feed_version', c.today, `feed_version を今日の日付 ${c.today} にする`, false) : (R('calendar.txt')[0] && R('calendar.txt')[0][k === 'feed_start_date' ? 'start_date' : 'end_date'] ? c.setVal(r, k, R('calendar.txt')[0][k === 'feed_start_date' ? 'start_date' : 'end_date'], `calendar.txt の期間 ${R('calendar.txt')[0][k === 'feed_start_date' ? 'start_date' : 'end_date']} を入れる`, false) : null));
           if (r.feed_start_date && r.feed_end_date && r.feed_start_date > r.feed_end_date) err('feed_info.txt', i, 'feed_end_date', '終了日が開始日より前', 'date_order');
           if (r.feed_end_date && /^\d{8}$/.test(r.feed_end_date) && r.feed_end_date < c.today) warn('feed_info.txt', i, 'feed_end_date', `feed_end_date ${r.feed_end_date} はすでに過ぎている`, 'expired');
         });
@@ -339,6 +339,46 @@
         }
         const tripIds = ids['trips.txt'] || new Map();
         for (const [tid, i] of tripIds) if (!byTrip.has(tid)) err('trips.txt', i, 'trip_id', `便 "${tid}" に stop_times.txt の行がない`, 'trip_empty', c.delRow('trips.txt', R('trips.txt')[i], `便 "${tid}" を消す`));
+      },
+    },
+    {
+      // 根拠: 国交省「公共交通運行情報標準データ仕様（GTFS-JP）v4 v3との差分」3.1 / 3.2（2026-03）。国際仕様より厳しいものだけをここで見る
+      id: 'gtfs_jp', label: 'GTFS-JP v4（日本標準仕様書）の必須・推奨', run(c) {
+        const { R, has, err, warn, info } = c;
+        const jp = 'GTFS-JP v4';
+        if (!has('fare_attributes.txt')) warn('fare_attributes.txt', null, '', `fare_attributes.txt がない（${jp} では必須。均一運賃でも 1 行書く）`, 'jp_file', { label: '均一運賃の行（price は要入力）を作る', safe: false, apply: feed => { const t = window.GTFS.ensureTable(feed, 'fare_attributes.txt'); if (!t.rows.length) t.rows.push(window.GTFS.newRow('fare_attributes.txt', { fare_id: 'fare1', price: '', currency_type: 'JPY', payment_method: '0', transfers: '0' })); } });
+        if (!has('translations.txt')) warn('translations.txt', null, '', `translations.txt がない（${jp} では必須。停留所名などの読み仮名・英語表記）`, 'jp_file');
+        const agencies = R('agency.txt');
+        agencies.forEach((r, i) => {
+          if (!r.agency_id) err('agency.txt', i, 'agency_id', `agency_id が空（${jp} では事業者が 1 つでも必須）`, 'jp_required', c.setVal(r, 'agency_id', 'agency' + (i + 1), null, true));
+          if (!r.agency_lang) err('agency.txt', i, 'agency_lang', `agency_lang が空（${jp} では必須）`, 'jp_required', c.setVal(r, 'agency_lang', 'ja', null, true));
+        });
+        R('feed_info.txt').forEach((r, i) => {
+          if (!r.feed_contact_email && !r.feed_contact_url) info('feed_info.txt', i, 'feed_contact_email', `連絡先（feed_contact_email か feed_contact_url）が空（${jp} では推奨）`, 'jp_recommended');
+        });
+        // location_type は JP v4 で必須。全行空（列がない）なら 1 件にまとめ、一部だけ空なら行ごとに
+        const stops = R('stops.txt'), ltEmpty = stops.filter(r => r.location_type === '' || r.location_type == null);
+        if (stops.length && ltEmpty.length === stops.length) err('stops.txt', null, 'location_type', `location_type が全行で空（${jp} では必須。停留所は 0）`, 'jp_required', { label: `全 ${stops.length} 行の location_type を 0（停留所）にする`, safe: true, apply: feed => { const t = window.GTFS.ensureTable(feed, 'stops.txt'); if (!t.header.includes('location_type')) t.header.push('location_type'); for (const r of t.rows) if (!r.location_type) r.location_type = '0'; } });
+        else ltEmpty.forEach(r => err('stops.txt', stops.indexOf(r), 'location_type', `location_type が空（${jp} では必須。停留所は 0）`, 'jp_required', c.setVal(r, 'location_type', '0', 'location_type を 0（停留所）にする', true)));
+        const only = agencies.length === 1 ? agencies[0].agency_id : '';
+        R('routes.txt').forEach((r, i) => {
+          if (!r.agency_id) err('routes.txt', i, 'agency_id', `agency_id が空（${jp} では必須）`, 'jp_required', only ? c.setVal(r, 'agency_id', only, `agency_id を ${only} にする`, true) : null);
+        });
+        if (agencies.length > 1) R('fare_attributes.txt').forEach((r, i) => { if (!r.agency_id) err('fare_attributes.txt', i, 'agency_id', `事業者が複数あるので agency_id が必要（${jp}）`, 'jp_required'); });
+        // 推奨の欄は行ごとに出すと多すぎるので、件数でまとめる
+        const rec = (file, col, pred, label) => { const rows = R(file); const n = rows.filter(pred).length; if (n) info(file, null, col, `${col}（${label}）が空の行が ${n} 件（${jp} では推奨）`, 'jp_recommended'); };
+        rec('routes.txt', 'route_color', r => !r.route_color, '路線の色');
+        rec('trips.txt', 'trip_headsign', r => !r.trip_headsign, '行き先表示');
+        rec('trips.txt', 'direction_id', r => !r.direction_id, '方向');
+        rec('stop_times.txt', 'timepoint', r => (r.arrival_time || r.departure_time) && !r.timepoint, '時刻の正確さ。時刻のある行のみ');
+        rec('agency.txt', 'agency_phone', r => !r.agency_phone, '電話番号');
+        // 乗降場グループ／エリアの中だけの利用: 同じ ID の行を 2 つ [JP]
+        const byTrip = new Map();
+        for (const r of R('stop_times.txt')) { if (!byTrip.has(r.trip_id)) byTrip.set(r.trip_id, []); byTrip.get(r.trip_id).push(r); }
+        for (const [tid, rows] of byTrip) {
+          const refs = rows.map(r => r.location_group_id || r.location_id).filter(Boolean);
+          if (refs.length === 1 && rows.length === 1) info('stop_times.txt', R('stop_times.txt').indexOf(rows[0]), 'location_group_id', `便 "${tid}" は区域の行が 1 つだけ。区域の中だけの利用もできるなら、同じ ID の行を 2 つ（乗る行・降りる行）にする（${jp}）`, 'jp_zone_pair');
+        }
       },
     },
     {

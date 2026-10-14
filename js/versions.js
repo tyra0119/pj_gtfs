@@ -15,6 +15,7 @@
     canonical: { label: 'GTFS-Flex 正式版（2024-03 採択、GTFS Schedule）', short: '正式版' },
     draft2022: { label: 'GTFS-Flex v2 後期ドラフト（2022〜23、areas / stop_areas 方式）', short: 'v2 後期ドラフト' },
     draft2020: { label: 'GTFS-Flex v2 初期ドラフト（2020、location_groups に location_id、pickup_dropoff_window）', short: 'v2 初期ドラフト' },
+    noflex: { label: 'Flex を除いた GTFS（Google 乗換案内向け。デマンド交通の便・区域・予約ルールを外す）', short: 'Flex なし' },
   };
   const DRAFT_ONLY_COLUMNS = ['mean_duration_factor', 'mean_duration_offset', 'safe_duration_factor', 'safe_duration_offset'];
 
@@ -105,8 +106,31 @@
   }
 
   // 正式版 → 古い形。元の feed は変えず、写しを返す
+  // Flex の要素を全部外す（2025-12 時点で Google 乗換案内は Flex を含むデータを受け付けない: GTFS-JP v4 仕様書）
+  function stripFlex(feed) {
+    const out = structuredClone(feed);
+    for (const n of ['booking_rules.txt', 'location_groups.txt', 'location_group_stops.txt']) delete out.files[n];
+    out.locations = null;
+    const st = out.files['stop_times.txt'];
+    if (st) {
+      const isFlex = r => r.location_group_id || r.location_id || r.start_pickup_drop_off_window || r.end_pickup_drop_off_window;
+      const flexTrips = new Set(st.rows.filter(isFlex).map(r => r.trip_id));
+      st.rows = st.rows.filter(r => !flexTrips.has(r.trip_id));
+      const drop = ['location_group_id', 'location_id', 'start_pickup_drop_off_window', 'end_pickup_drop_off_window', 'pickup_booking_rule_id', 'drop_off_booking_rule_id', ...DRAFT_ONLY_COLUMNS];
+      st.header = st.header.filter(h => !drop.includes(h));
+      for (const r of st.rows) for (const h of drop) delete r[h];
+      const tr = out.files['trips.txt'];
+      if (tr) tr.rows = tr.rows.filter(r => !flexTrips.has(r.trip_id));
+      const used = new Set((tr ? tr.rows : []).map(r => r.route_id));
+      const ro = out.files['routes.txt'];
+      if (ro) ro.rows = ro.rows.filter(r => used.has(r.route_id));
+    }
+    return out;
+  }
+
   function fromCanonical(feed, version) {
     if (!version || version === 'canonical') return feed;
+    if (version === 'noflex') return stripFlex(feed);
     const G = window.GTFS;
     const out = structuredClone(feed);
     const st = out.files['stop_times.txt'];
@@ -146,5 +170,17 @@
     return out;
   }
 
-  window.FlexVersions = { VERSIONS, DRAFT_ONLY_COLUMNS, detect, toCanonical, fromCanonical };
+  // GTFS-JP の版の手がかり: v3 の独自拡張（agency_jp.txt など）があるか。v4 では参考扱いで、含めてもよい
+  function detectJp(feed) {
+    const jpFiles = ['agency_jp.txt', 'routes_jp.txt', 'office_jp.txt', 'pattern_jp.txt'].filter(n => feed.files[n] && feed.files[n].rows.length);
+    const jpCols = [];
+    for (const [n, cols] of [['trips.txt', ['jp_office_id', 'jp_pattern_id', 'jp_trip_desc', 'jp_trip_desc_symbol']], ['routes.txt', ['jp_parent_route_id']]]) {
+      const t = feed.files[n]; if (!t) continue;
+      for (const c of cols) if (t.header.includes(c) && t.rows.some(r => r[c])) jpCols.push(n.replace('.txt', '') + '.' + c);
+    }
+    const hasFlex = !!(feed.files['booking_rules.txt'] || feed.files['location_groups.txt'] || (feed.locations && feed.locations.features && feed.locations.features.length));
+    return { jpFiles, jpCols, hasFlex, label: hasFlex ? 'GTFS-JP v4（Flex を含む。日本標準仕様書 2026-03）' : (jpFiles.length || jpCols.length ? 'GTFS-JP v3 形式（独自拡張あり。v4 でも含めてよい）' : 'GTFS-JP v4 / 国際仕様（独自拡張なし）') };
+  }
+
+  window.FlexVersions = { VERSIONS, DRAFT_ONLY_COLUMNS, detect, toCanonical, fromCanonical, stripFlex, detectJp };
 })();

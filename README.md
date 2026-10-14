@@ -9,4 +9,4 @@ https://tyra0119.github.io/pj_gtfs/
 - サンプル: 公共交通オープンデータセンター（CC BY 4.0）
 - 準拠: GTFS Schedule 仕様（gtfs.org）、国土交通省 COMmmmONS「GTFS-JP 4.0 ガイドライン」第3部 Flex 拡張
 
-版: b1c7681-mv8qlyfu
+版: 5055bdd-mv8qt6x7

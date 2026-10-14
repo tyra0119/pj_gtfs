@@ -27,6 +27,7 @@
         { name: 'agency_phone', label: '電話番号', type: 'phone' },
         { name: 'agency_fare_url', label: '運賃URL', type: 'url' },
         { name: 'agency_email', label: 'メール', type: 'email' },
+        { name: 'cemv_support', label: 'タッチ決済 (JP v4)', type: 'text', help: 'GTFS-JP v4 で追加。クレジットカード等のタッチ決済の対応' },
       ],
     },
     'stops.txt': {
@@ -47,6 +48,7 @@
         { name: 'platform_code', label: 'のりば', type: 'text' },
         { name: 'tts_stop_name', label: '読み上げ用の名前', type: 'text' },
         { name: 'level_id', label: '階', type: 'ref', ref: 'levels.txt' },
+        { name: 'stop_access', label: '駅への出入り', type: 'text', help: 'GTFS 2025 で追加。条件付き禁止' },
         { name: 'platform_name', label: 'のりば名 (JP)', type: 'text' },
       ],
     },
@@ -66,6 +68,7 @@
         { name: 'continuous_pickup', label: '途中乗車', type: 'enum', values: PICKUP },
         { name: 'continuous_drop_off', label: '途中降車', type: 'enum', values: DROPOFF },
         { name: 'network_id', label: 'ネットワークID', type: 'text' },
+        { name: 'cemv_support', label: 'タッチ決済 (JP v4)', type: 'text', help: 'GTFS-JP v4 で追加' },
         { name: 'jp_parent_route_id', label: '親路線ID (JP)', type: 'text' },
       ],
     },
@@ -193,7 +196,7 @@
     'frequencies.txt': { label: '運転間隔', presence: 'optional', key: null, fields: [
       { name: 'trip_id', label: '便ID', type: 'ref', ref: 'trips.txt', required: true }, { name: 'start_time', label: '開始', type: 'time', required: true }, { name: 'end_time', label: '終了', type: 'time', required: true }, { name: 'headway_secs', label: '間隔(秒)', type: 'int', required: true }, { name: 'exact_times', label: '正確', type: 'enum', values: YESNO } ] },
     'fare_attributes.txt': { label: '運賃', presence: 'optional', key: 'fare_id', fields: [
-      { name: 'fare_id', label: '運賃ID', type: 'id', required: true }, { name: 'price', label: '金額', type: 'float', required: true }, { name: 'currency_type', label: '通貨', type: 'text', required: true, default: 'JPY' }, { name: 'payment_method', label: '支払い', type: 'enum', values: { '0': '0: 車内', '1': '1: 乗車前' }, required: true }, { name: 'transfers', label: '乗継', type: 'enum', values: { '0': '0: 不可', '1': '1: 1回', '2': '2: 2回', '': '無制限' }, required: true }, { name: 'agency_id', label: '事業者ID', type: 'ref', ref: 'agency.txt' }, { name: 'transfer_duration', label: '乗継時間(秒)', type: 'int' } ] },
+      { name: 'fare_id', label: '運賃ID', type: 'id', required: true }, { name: 'price', label: '金額', type: 'float', required: true }, { name: 'currency_type', label: '通貨', type: 'text', required: true, default: 'JPY' }, { name: 'payment_method', label: '支払い', type: 'enum', values: { '0': '0: 車内', '1': '1: 乗車前' }, required: true }, { name: 'transfers', label: '乗継', type: 'enum', values: { '0': '0: 不可', '1': '1: 1回', '2': '2: 2回', '': '無制限' }, required: true }, { name: 'agency_id', label: '事業者ID', type: 'ref', ref: 'agency.txt' }, { name: 'transfer_duration', label: '乗継時間(秒)', type: 'int' }, { name: 'ic_price', label: 'IC運賃 (JP)', type: 'float', help: 'GTFS-JP で推奨。IC カード利用時の運賃' } ] },
     'fare_rules.txt': { label: '運賃の適用', presence: 'optional', key: null, fields: [
       { name: 'fare_id', label: '運賃ID', type: 'ref', ref: 'fare_attributes.txt', required: true }, { name: 'route_id', label: '路線ID', type: 'ref', ref: 'routes.txt' }, { name: 'origin_id', label: '乗車ゾーン', type: 'text' }, { name: 'destination_id', label: '降車ゾーン', type: 'text' }, { name: 'contains_id', label: '経由ゾーン', type: 'text' } ] },
     'translations.txt': { label: '翻訳', presence: 'optional', key: null, fields: [

@@ -181,7 +181,8 @@
   $('#btnExport').addEventListener('click', async () => {
     if (!S.feed) return;
     const ver = $('#exportVersion').value;
-    if (ver !== 'canonical' && !confirm(`${window.FlexVersions.VERSIONS[ver].label} の形で書き出します。\n正式版の経路検索（ODPT への提供も）には正式版を使ってください。続けますか？`)) return;
+    if (ver === 'noflex' && !confirm('デマンド交通の便・区域・予約ルールを外した、通常の GTFS だけを書き出します。\nGoogle 乗換案内は Flex を含むデータを受け付けないので（2025 年 12 月時点、GTFS-JP v4 仕様書）、Google 向けはこちらを使います。\nODPT への提供は正式版（Flex 込み）です。続けますか？')) return;
+    if (ver !== 'canonical' && ver !== 'noflex' && !confirm(`${window.FlexVersions.VERSIONS[ver].label} の形で書き出します。\n正式版の経路検索（ODPT への提供も）には正式版を使ってください。続けますか？`)) return;
     const blob = await G.saveZip(window.FlexVersions.fromCanonical(S.feed, ver));
     const a = el('a', { href: URL.createObjectURL(blob), download: (S.name || 'gtfs-flex').replace(/\.zip$/i, '') + (ver === 'canonical' ? '' : '-' + ver) + '.zip' });
     document.body.append(a); a.click(); a.remove();
@@ -198,7 +199,8 @@
     const flexKind = S.feed.locations && S.feed.locations.features.length ? '区域ポリゴン' : (cnt('location_groups.txt') ? '停留所グループ' : '（区域なし）');
     const ag = (F['agency.txt'] && F['agency.txt'].rows[0]) || {};
     const VER = window.FlexVersions.VERSIONS;
-    const verLine = S.feed.flexVersion && S.feed.flexVersion !== 'canonical' ? `\n読み込んだ形式: ${VER[S.feed.flexVersion].short} → 正式版に直して扱っています${(S.feed.conversionNotes || []).length ? '\n　' + S.feed.conversionNotes.join('\n　') : ''}` : '';
+    const jp = window.FlexVersions.detectJp(S.feed);
+    const verLine = (S.feed.flexVersion && S.feed.flexVersion !== 'canonical' ? `\n読み込んだ形式: ${VER[S.feed.flexVersion].short} → 正式版に直して扱っています${(S.feed.conversionNotes || []).length ? '\n　' + S.feed.conversionNotes.join('\n　') : ''}` : '') + `\n仕様: ${jp.label}${jp.jpFiles.length ? '　独自拡張ファイル: ' + jp.jpFiles.join(', ') : ''}`;
     $('#feedSummary').textContent = `${S.name}\n事業者: ${ag.agency_name || '-'}　路線 ${cnt('routes.txt')}　便 ${cnt('trips.txt')}　停留所 ${cnt('stops.txt')}　stop_times ${cnt('stop_times.txt')} 行\n区域の表し方: ${flexKind}　グループ ${cnt('location_groups.txt')}　ポリゴン ${S.feed.locations ? S.feed.locations.features.length : 0}　予約ルール ${cnt('booking_rules.txt')}${verLine}\n` + (n('error') === 0 ? '✔ エラーはありません' : `✖ エラーが ${n('error')} 件あります`);
     const fs = $('#filterFile'); const cur = fs.value; fs.innerHTML = '<option value="">すべてのファイル</option>';
     for (const f of [...new Set(S.issues.map(i => i.file))].sort()) fs.append(el('option', { value: f }, f));
