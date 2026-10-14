@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>GTFS-Flex 作成・検証ツール</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/maplibre-gl/4.7.1/maplibre-gl.min.css">
+<link rel="stylesheet" href="css/style.css?v=2d8a6e1-mv8oz962">
+</head>
+<body>
+<header class="topbar">
+  <div class="brand">GTFS-Flex 作成・検証ツール</div>
+  <div class="actions">
+    <label class="btn">開く (zip)<input type="file" id="fileInput" accept=".zip" hidden></label>
+    <div class="odpt">
+      <select id="odptSelect"><option value="">ODPT のデータから選ぶ…</option></select>
+      <button id="odptLoad" class="btn">読み込む</button>
+    </div>
+    <button id="btnNew" class="btn">新規作成</button>
+    <button id="btnValidate" class="btn primary">検証する</button>
+    <button id="btnExport" class="btn">zip に書き出す</button>
+    <span id="saveStatus" class="status">自動保存: まだ</span>
+  </div>
+</header>
+
+<div class="main">
+  <aside class="side">
+    <nav class="tabs">
+      <button data-tab="validate" class="active">検証</button>
+      <button data-tab="files">ファイル編集</button>
+      <button data-tab="zones">区域・停留所</button>
+      <button data-tab="trips">便を追加</button>
+      <button data-tab="changes">変更 <span id="changeBadge" class="badge"></span></button>
+    </nav>
+
+    <section id="tab-validate" class="tab active">
+      <div id="feedSummary" class="summary">データが読み込まれていません。上の「開く」「ODPT のデータから選ぶ」「新規作成」から始めてください。</div>
+      <details id="stepsBox" class="steps" open><summary>作成の手順 <span id="stepsCount"></span></summary><ol id="steps"></ol></details>
+      <div class="vbar">
+        <span class="count err" id="cntErr">エラー 0</span>
+        <span class="count warn" id="cntWarn">警告 0</span>
+        <span class="count info" id="cntInfo">情報 0</span>
+        <button id="btnFixAll" class="btn small" disabled>安全な修正案をまとめて適用（0）</button>
+      </div>
+      <div class="vfilter">
+        <label><input type="checkbox" id="showErr" checked> エラー</label>
+        <label><input type="checkbox" id="showWarn" checked> 警告</label>
+        <label><input type="checkbox" id="showInfo"> 情報</label>
+        <select id="filterFile"><option value="">すべてのファイル</option></select>
+        <details class="rules"><summary>検証の規則</summary><div id="ruleList"></div></details>
+      </div>
+      <ul id="issueList" class="issues"></ul>
+      <p class="note">公開前に、公式の検証器にも zip を通してください: <a href="https://gtfs-validator.mobilitydata.org/" target="_blank" rel="noopener">Canonical GTFS Validator</a>（MobilityData、英語）/ <a href="https://gtfs-data.jp/" target="_blank" rel="noopener">GTFS データリポジトリ</a>（同じ検証器の日本語版）/ <a href="https://www.busdata.or.jp/gtfs/calendar.html" target="_blank" rel="noopener">運行日チェッカー</a>（日本バス情報協会）。</p>
+    </section>
+
+    <section id="tab-files" class="tab">
+      <div class="filebar">
+        <select id="fileSelect"></select>
+        <button id="btnAddFile" class="btn small" title="仕様にあるファイルを足す">ファイルを足す</button>
+        <div class="modes">
+          <button data-mode="table" class="active">表</button>
+          <button data-mode="form">フォーム</button>
+          <button data-mode="text">テキスト</button>
+        </div>
+      </div>
+      <div id="editor"></div>
+    </section>
+
+    <section id="tab-zones" class="tab">
+      <h3>停留所グループ（location_groups）</h3>
+      <div class="row">
+        <select id="groupSelect"></select>
+        <button id="btnGroupAdd" class="btn small">追加</button>
+        <button id="btnGroupDel" class="btn small danger">削除</button>
+      </div>
+      <div class="row"><label>名前 <input id="groupName" type="text"></label></div>
+      <div class="row">
+        <button id="btnPickStops" class="btn small toggle">地図で停留所を出し入れ</button>
+        <button id="btnGroupAll" class="btn small">全停留所を入れる</button>
+        <button id="btnGroupNone" class="btn small">空にする</button>
+        <span id="groupCount" class="muted"></span>
+      </div>
+
+      <h3>区域ポリゴン（locations.geojson）</h3>
+      <div class="row">
+        <select id="locSelect"></select>
+        <button id="btnLocDraw" class="btn small toggle">地図に描く</button>
+        <button id="btnLocDel" class="btn small danger">削除</button>
+      </div>
+      <div id="locForm" class="form"></div>
+      <p class="muted small">描く: 地図をクリックして頂点を置き、ダブルクリックか Enter で確定（Esc で中止）。直す: 頂点をドラッグ、辺の中点をドラッグして頂点を足す、頂点を右クリックで消す。</p>
+
+      <h3>停留所（stops）</h3>
+      <div class="row">
+        <button id="btnStopAdd" class="btn small toggle">地図をクリックして追加</button>
+        <button id="btnStopMove" class="btn small toggle">ドラッグで移動</button>
+        <button id="btnStopDel" class="btn small danger">選択中を削除</button>
+      </div>
+      <div id="stopForm" class="form"></div>
+      <p class="muted small">地図の停留所をクリックすると選べます。赤は選択中グループの停留所、緑はそれ以外。</p>
+    </section>
+
+    <section id="tab-trips" class="tab">
+      <h3>区域運行の便を足す</h3>
+      <p class="muted small">「この区域（またはグループ・停留所）で、この時間帯に、この予約ルールで乗り降りできる」便を作ります。区域が 1 つならその中で 1 便、区域 A から区域 B へなら往路と復路の 2 便、が GTFS-JP 4.0 ガイドラインの型です。出発時刻が決まっている便（8 時発・10 時発など）は Flex では表せないので、通常の時刻表として stop_times に時刻を書いてください。</p>
+      <div id="tripForm" class="form"></div>
+      <button id="btnTripAdd" class="btn primary">便を追加</button>
+      <h3>便の一覧</h3>
+      <ul id="tripList" class="plain"></ul>
+    </section>
+
+    <section id="tab-changes" class="tab">
+      <div id="changeSummary" class="summary">読み込んだときのデータと比べた変更はありません。</div>
+      <table class="difftable" id="diffTable"></table>
+      <div id="diffDetail"></div>
+    </section>
+  </aside>
+  <div id="map" class="map"></div>
+</div>
+
+<dialog id="newDialog">
+  <form method="dialog" id="newForm">
+    <h3>新規作成</h3>
+    <label>事業者名 <input name="agencyName" required placeholder="○○町"></label>
+    <label>事業者 URL <input name="agencyUrl" type="url" required placeholder="https://www.town.example.lg.jp/"></label>
+    <label>予約の電話番号 <input name="phone" placeholder="0120-000-000"></label>
+    <label>サービス名（路線名） <input name="routeName" placeholder="○○デマンド交通"></label>
+    <label>区域の表し方
+      <select name="zoneKind">
+        <option value="group">停留所グループ（決まった乗降場所の集まり）</option>
+        <option value="polygon">区域ポリゴン（区域内のどこでも乗り降り）</option>
+        <option value="both">両方（グループもポリゴンも使う）</option>
+      </select>
+    </label>
+    <label>運行曜日 <span class="days">
+      <label><input type="checkbox" name="d0" checked>月</label><label><input type="checkbox" name="d1" checked>火</label><label><input type="checkbox" name="d2" checked>水</label><label><input type="checkbox" name="d3" checked>木</label><label><input type="checkbox" name="d4" checked>金</label><label><input type="checkbox" name="d5">土</label><label><input type="checkbox" name="d6">日</label>
+    </span></label>
+    <label>期間 <input name="startDate" placeholder="20260401" pattern="\d{8}" required> 〜 <input name="endDate" placeholder="20270331" pattern="\d{8}" required></label>
+    <label>乗降時間帯 <input name="windowStart" value="08:00:00" pattern="\d{1,2}:\d{2}:\d{2}"> 〜 <input name="windowEnd" value="17:00:00" pattern="\d{1,2}:\d{2}:\d{2}"></label>
+    <label>予約の種類
+      <select name="bookingType">
+        <option value="1">当日に予約（○分前まで）</option>
+        <option value="2">前日までに予約（○日前の○時まで）</option>
+        <option value="0">予約なしで乗れる</option>
+      </select>
+    </label>
+    <label class="bt1">当日予約: 何分前まで <input name="noticeMin" type="number" value="30" min="0"> 　何分前から（空なら制限なし） <input name="noticeMax" type="number" min="0" placeholder="10080"></label>
+    <label class="bt2">前日予約: 何日前まで <input name="lastDay" type="number" value="1" min="0"> 　その日の何時まで <input name="lastTime" value="17:00:00" pattern="\d{1,2}:\d{2}:\d{2}"></label>
+    <label>予約 Web / アプリの URL（あれば） <input name="bookingUrl" type="url" placeholder="https://..."></label>
+    <label>案内ページの URL（あれば） <input name="infoUrl" type="url" placeholder="https://..."></label>
+    <label>予約の案内文 <input name="bookingMessage" placeholder="ご利用の 30 分前までに電話か Web で予約してください"></label>
+    <menu><button value="cancel" class="btn">やめる</button><button value="ok" class="btn primary">作る</button></menu>
+  </form>
+</dialog>
+
+<dialog id="resumeDialog">
+  <form method="dialog">
+    <h3>前回の続き</h3>
+    <p id="resumeInfo"></p>
+    <menu><button value="discard" class="btn">捨てる</button><button value="resume" class="btn primary">続きから</button></menu>
+  </form>
+</dialog>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/maplibre-gl/4.7.1/maplibre-gl.min.js"></script>
+<script src="js/spec.js?v=2d8a6e1-mv8oz962"></script>
+<script src="js/gtfs.js?v=2d8a6e1-mv8oz962"></script>
+<script src="js/validate.js?v=2d8a6e1-mv8oz962"></script>
+<script src="js/map.js?v=2d8a6e1-mv8oz962"></script>
+<script src="js/odpt.js?v=2d8a6e1-mv8oz962"></script>
+<script src="js/store.js?v=2d8a6e1-mv8oz962"></script>
+<script src="js/diff.js?v=2d8a6e1-mv8oz962"></script>
+<script src="js/app.js?v=2d8a6e1-mv8oz962"></script>
+</body>
+</html>

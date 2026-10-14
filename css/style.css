@@ -1,0 +1,138 @@
+:root {
+  --bg: #f6f7f9; --panel: #fff; --line: #d9dde3; --text: #1f2937; --muted: #6b7280;
+  --primary: #1a5fd0; --err: #d33; --warn: #d78a00; --info: #3b82f6; --ok: #2a9d4a;
+}
+* { box-sizing: border-box; }
+html, body { height: 100%; margin: 0; }
+body { font: 14px/1.5 system-ui, -apple-system, "Segoe UI", "Hiragino Sans", "Noto Sans JP", sans-serif; color: var(--text); background: var(--bg); display: flex; flex-direction: column; }
+.topbar { display: flex; align-items: center; gap: 12px; padding: 6px 12px; background: var(--panel); border-bottom: 1px solid var(--line); flex-wrap: wrap; }
+.brand { font-weight: 700; font-size: 15px; }
+.actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.odpt { display: flex; gap: 4px; }
+.odpt select { max-width: 280px; }
+.btn { display: inline-block; padding: 5px 10px; border: 1px solid var(--line); border-radius: 6px; background: #fff; cursor: pointer; font: inherit; color: var(--text); }
+.btn:hover { background: #f0f3f7; }
+.btn.primary { background: var(--primary); color: #fff; border-color: var(--primary); }
+.btn.primary:hover { background: #164fae; }
+.btn.danger { color: var(--err); }
+.btn.small { padding: 3px 8px; font-size: 13px; }
+.btn.toggle.on { background: #ffe9c7; border-color: var(--warn); }
+.status { color: var(--muted); font-size: 12px; }
+.main { flex: 1; display: flex; min-height: 0; }
+.side { width: 520px; max-width: 60vw; background: var(--panel); border-right: 1px solid var(--line); display: flex; flex-direction: column; min-height: 0; }
+.map { flex: 1; position: relative; min-width: 0; }
+.tabs { display: flex; border-bottom: 1px solid var(--line); }
+.tabs button { flex: 1; padding: 8px 4px; border: 0; background: transparent; cursor: pointer; font: inherit; color: var(--muted); border-bottom: 2px solid transparent; }
+.tabs button.active { color: var(--primary); border-bottom-color: var(--primary); font-weight: 600; }
+.tab { display: none; flex: 1; overflow: auto; padding: 10px 12px; min-height: 0; }
+.tab.active { display: flex; flex-direction: column; }
+h3 { font-size: 14px; margin: 14px 0 6px; }
+h3:first-child { margin-top: 0; }
+.row { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; margin: 4px 0; }
+.row label { display: flex; gap: 4px; align-items: center; }
+.muted { color: var(--muted); }
+.small { font-size: 12px; }
+input[type=text], input[type=url], input[type=number], input:not([type]), select, textarea { font: inherit; padding: 4px 6px; border: 1px solid var(--line); border-radius: 4px; background: #fff; }
+input:invalid { border-color: var(--err); }
+/* 検証 */
+.summary { background: #f0f4fa; border-radius: 6px; padding: 8px 10px; font-size: 13px; white-space: pre-line; }
+.vbar { display: flex; gap: 10px; margin: 8px 0; }
+.count { padding: 2px 8px; border-radius: 10px; font-size: 12px; background: #eee; }
+.count.err { background: #fde2e2; color: #a11; }
+.count.warn { background: #fff0cc; color: #8a5a00; }
+.count.info { background: #e0ecff; color: #1a4fa0; }
+.vfilter { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; font-size: 13px; }
+.rules { width: 100%; font-size: 12px; }
+.rules label { display: inline-block; margin-right: 10px; }
+.issues { list-style: none; margin: 8px 0; padding: 0; flex: 1; overflow: auto; }
+.issues li { padding: 6px 8px; border-left: 4px solid #ccc; margin-bottom: 4px; background: #fafafa; cursor: pointer; font-size: 13px; }
+.issues li.error { border-color: var(--err); }
+.issues li.warn { border-color: var(--warn); }
+.issues li.info { border-color: var(--info); }
+.issues li:hover { background: #f0f3f7; }
+.issues .loc { color: var(--muted); font-size: 12px; }
+.note { font-size: 12px; color: var(--muted); }
+/* ファイル編集 */
+.filebar { display: flex; gap: 6px; align-items: center; margin-bottom: 6px; flex-wrap: wrap; }
+.modes button { padding: 3px 8px; border: 1px solid var(--line); background: #fff; cursor: pointer; font: inherit; }
+.modes button:first-child { border-radius: 6px 0 0 6px; }
+.modes button:last-child { border-radius: 0 6px 6px 0; }
+.modes button.active { background: var(--primary); color: #fff; border-color: var(--primary); }
+#editor { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.tablebar { display: flex; gap: 6px; align-items: center; margin-bottom: 4px; flex-wrap: wrap; font-size: 13px; }
+.tablewrap { flex: 1; overflow: auto; border: 1px solid var(--line); border-radius: 4px; }
+table.grid { border-collapse: collapse; font-size: 12px; min-width: 100%; }
+table.grid th { position: sticky; top: 0; background: #eef1f5; padding: 4px 6px; border: 1px solid var(--line); text-align: left; white-space: nowrap; font-weight: 600; }
+table.grid th small { display: block; color: var(--muted); font-weight: 400; }
+table.grid th.req { border-bottom: 2px solid var(--primary); }
+table.grid td { border: 1px solid var(--line); padding: 0; }
+table.grid td input, table.grid td select { width: 100%; min-width: 80px; border: 0; padding: 3px 5px; font: inherit; font-size: 12px; background: transparent; border-radius: 0; }
+table.grid td input:focus, table.grid td select:focus { outline: 2px solid var(--primary); outline-offset: -2px; }
+table.grid td.rownum { color: var(--muted); text-align: right; padding: 3px 6px; background: #fafafa; white-space: nowrap; }
+table.grid tr.hl td { background: #fff5d6; }
+table.grid td.bad, table.grid tr.hl td.bad { background: #fbbcbc; }
+table.grid td.del { text-align: center; }
+table.grid td.del button { border: 0; background: transparent; cursor: pointer; color: var(--muted); }
+textarea.csv { flex: 1; width: 100%; min-height: 300px; font: 12px/1.4 ui-monospace, Consolas, monospace; white-space: pre; resize: vertical; }
+.form { display: grid; grid-template-columns: max-content 1fr; gap: 4px 8px; align-items: center; margin: 4px 0; }
+.form label { color: var(--muted); font-size: 12px; text-align: right; }
+.form input, .form select { width: 100%; }
+.form .help { grid-column: 2; font-size: 11px; color: var(--muted); margin-top: -2px; }
+.form .req { color: var(--err); }
+.formnav { display: flex; gap: 6px; align-items: center; margin: 6px 0; font-size: 13px; }
+ul.plain { list-style: none; padding: 0; margin: 0; }
+ul.plain li { padding: 4px 6px; border-bottom: 1px solid #eee; font-size: 13px; display: flex; gap: 6px; align-items: center; }
+ul.plain li span { flex: 1; }
+/* 地図のボタン（右下に縦並び: 方角・現在地・拡大・縮小） */
+.map-ctl { position: absolute; right: 12px; bottom: 28px; display: flex; flex-direction: column; gap: 8px; z-index: 5; }
+.map-ctl button { width: 40px; height: 40px; border: 0; border-radius: 8px; background: #fff; box-shadow: 0 1px 4px rgba(0,0,0,.3); cursor: pointer; font-size: 20px; display: flex; align-items: center; justify-content: center; padding: 0; }
+.map-ctl button:hover { background: #f3f3f3; }
+.map-ctl svg { width: 24px; height: 24px; transition: transform .15s; }
+.map-ctl .mc-zoom { display: flex; flex-direction: column; border-radius: 8px; overflow: hidden; box-shadow: 0 1px 4px rgba(0,0,0,.3); }
+.map-ctl .mc-zoom button { border-radius: 0; box-shadow: none; }
+.map-ctl .mc-zoom button:first-child { border-bottom: 1px solid #e5e5e5; }
+.map-mode { position: absolute; left: 12px; top: 12px; background: #fff3d6; border: 1px solid var(--warn); padding: 4px 10px; border-radius: 6px; font-size: 13px; z-index: 5; display: none; }
+/* ダイアログ */
+dialog { border: 1px solid var(--line); border-radius: 10px; padding: 16px 20px; max-width: 520px; width: 90vw; }
+dialog::backdrop { background: rgba(0,0,0,.3); }
+dialog form { display: flex; flex-direction: column; gap: 8px; }
+dialog form > label { display: flex; flex-direction: column; gap: 2px; font-size: 13px; color: var(--muted); }
+dialog form > label input, dialog form > label select { font-size: 14px; color: var(--text); }
+dialog .days { display: flex; gap: 6px; }
+dialog .days label { display: flex; align-items: center; gap: 2px; color: var(--text); }
+dialog menu { display: flex; justify-content: flex-end; gap: 8px; padding: 0; margin: 8px 0 0; }
+@media (max-width: 800px) {
+  .main { flex-direction: column; }
+  .side { width: 100%; max-width: none; height: 55vh; border-right: 0; border-bottom: 1px solid var(--line); }
+  .map { height: 45vh; }
+}
+
+/* 変更 */
+.badge { display: inline-block; min-width: 8px; padding: 0 5px; border-radius: 8px; background: var(--warn); color: #fff; font-size: 11px; vertical-align: middle; }
+.badge:empty { display: none; }
+.difftable { border-collapse: collapse; width: 100%; font-size: 13px; margin: 8px 0; }
+.difftable th, .difftable td { border-bottom: 1px solid var(--line); padding: 4px 6px; text-align: right; }
+.difftable th:first-child, .difftable td:first-child { text-align: left; }
+.difftable tr.sel td { background: #fff5d6; }
+.difftable tbody tr { cursor: pointer; }
+.difftable .add { color: var(--ok); } .difftable .upd { color: var(--warn); } .difftable .del { color: var(--err); }
+.diffitem { border-left: 4px solid #ccc; padding: 4px 8px; margin: 4px 0; background: #fafafa; font-size: 13px; display: flex; gap: 6px; align-items: flex-start; }
+.diffitem.add { border-color: var(--ok); } .diffitem.upd { border-color: var(--warn); } .diffitem.del { border-color: var(--err); }
+.diffitem > div { flex: 1; }
+.diffitem .chg { color: var(--muted); font-size: 12px; }
+.diffitem .chg b { color: var(--text); font-weight: 600; }
+.issues .fix { margin-top: 3px; display: flex; gap: 6px; align-items: center; font-size: 12px; color: #1a4f1a; }
+.issues .fix span { flex: 1; }
+
+/* 作成の手順 */
+.steps { font-size: 13px; margin: 6px 0; }
+.steps summary { cursor: pointer; font-weight: 600; }
+.steps ol { margin: 4px 0 0; padding-left: 4px; list-style: none; }
+.steps li { display: flex; gap: 6px; align-items: center; padding: 3px 0; border-bottom: 1px dashed #eee; }
+.steps li .mark { width: 18px; text-align: center; color: var(--muted); }
+.steps li.done .mark { color: var(--ok); }
+.steps li.done .lab { color: var(--muted); }
+.steps li .lab { flex: 1; }
+.form input.na, .form select.na { background: #f1f1f1; color: #999; }
+dialog form > label.bt1, dialog form > label.bt2 { flex-direction: row; flex-wrap: wrap; align-items: center; gap: 6px; }
+dialog form > label.bt1 input, dialog form > label.bt2 input { width: 90px; }
