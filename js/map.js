@@ -5,6 +5,14 @@
   'use strict';
 
   const GSI_ATTR = '<a href="https://maps.gsi.go.jp/development/ichiran.html" target="_blank">地理院タイル</a>';
+  // 背景地図。見やすさは場所と目的で変わるので、画面で切り替えられるようにする
+  const BASEMAPS = {
+    pale: { label: '淡色地図（地理院）', tiles: ['https://cyberjapandata.gsi.go.jp/xyz/pale/{z}/{x}/{y}.png'], attribution: GSI_ATTR, maxzoom: 18 },
+    std: { label: '標準地図（地理院）', tiles: ['https://cyberjapandata.gsi.go.jp/xyz/std/{z}/{x}/{y}.png'], attribution: GSI_ATTR, maxzoom: 18 },
+    blank: { label: '白地図（地理院）', tiles: ['https://cyberjapandata.gsi.go.jp/xyz/blank/{z}/{x}/{y}.png'], attribution: GSI_ATTR, maxzoom: 14 },
+    photo: { label: '航空写真（地理院）', tiles: ['https://cyberjapandata.gsi.go.jp/xyz/seamlessphoto/{z}/{x}/{y}.jpg'], attribution: GSI_ATTR, maxzoom: 18 },
+    osm: { label: 'OpenStreetMap', tiles: ['https://tile.openstreetmap.org/{z}/{x}/{y}.png'], attribution: '© <a href="https://www.openstreetmap.org/copyright" target="_blank">OpenStreetMap</a> contributors', maxzoom: 19 },
+  };
 
   function create(container, handlers) {
     const H = Object.assign({ onStopClick() {}, onMapClick() {}, onStopMoved() {}, onPolygonDone() {}, onVertexMoved() {}, onVertexInsert() {}, onVertexDelete() {}, onLocationClick() {} }, handlers || {});
@@ -12,9 +20,9 @@
       container,
       style: {
         version: 8,
-        glyphs: 'https://fonts.openmaptiles.org/{fontstack}/{range}.pbf',
-        sources: { gsi: { type: 'raster', tiles: ['https://cyberjapandata.gsi.go.jp/xyz/pale/{z}/{x}/{y}.png'], tileSize: 256, attribution: GSI_ATTR, maxzoom: 18 } },
-        layers: [{ id: 'gsi', type: 'raster', source: 'gsi' }],
+        glyphs: 'https://maps.gsi.go.jp/xyz/noto-jp/{fontstack}/{range}.pbf', // 地理院の配信。openmaptiles は 2026-10 時点で HTML を返す
+        sources: Object.fromEntries(Object.entries(BASEMAPS).map(([k, b]) => ['base-' + k, { type: 'raster', tiles: b.tiles, tileSize: 256, attribution: b.attribution, maxzoom: b.maxzoom }])),
+        layers: Object.keys(BASEMAPS).map(k => ({ id: 'base-' + k, type: 'raster', source: 'base-' + k, layout: { visibility: k === 'pale' ? 'visible' : 'none' }, paint: { 'raster-opacity': 0.8 } })),
       },
       center: [139.7, 35.7], zoom: 9, maxZoom: 20, attributionControl: false,
       dragRotate: true, touchZoomRotate: true, touchPitch: true, pitchWithRotate: true,
@@ -33,9 +41,9 @@
 
     map.on('load', () => {
       map.addSource('locations', { type: 'geojson', data: empty() });
-      map.addLayer({ id: 'loc-fill', type: 'fill', source: 'locations', paint: { 'fill-color': ['case', ['boolean', ['get', '_selected'], false], '#f0a030', '#2a7fff'], 'fill-opacity': 0.25 } });
-      map.addLayer({ id: 'loc-line', type: 'line', source: 'locations', paint: { 'line-color': ['case', ['boolean', ['get', '_selected'], false], '#d07000', '#1a5fd0'], 'line-width': 2 } });
-      map.addLayer({ id: 'loc-label', type: 'symbol', source: 'locations', layout: { 'text-field': ['coalesce', ['get', 'stop_name'], ['get', '_id']], 'text-size': 13, 'text-font': ['Noto Sans Regular'] }, paint: { 'text-color': '#1a3f8a', 'text-halo-color': '#fff', 'text-halo-width': 1.5 } });
+      map.addLayer({ id: 'loc-fill', type: 'fill', source: 'locations', paint: { 'fill-color': ['case', ['boolean', ['get', '_selected'], false], '#f0a030', '#7c4dff'], 'fill-opacity': 0.22 } });
+      map.addLayer({ id: 'loc-line', type: 'line', source: 'locations', paint: { 'line-color': ['case', ['boolean', ['get', '_selected'], false], '#d07000', '#5a2fd0'], 'line-width': 2.5 } });
+      map.addLayer({ id: 'loc-label', type: 'symbol', source: 'locations', layout: { 'text-field': ['coalesce', ['get', 'stop_name'], ['get', '_id']], 'text-size': 13, 'text-font': ['NotoSansCJKjp-Regular'] }, paint: { 'text-color': '#1a3f8a', 'text-halo-color': '#fff', 'text-halo-width': 1.5 } });
       map.addSource('draft', { type: 'geojson', data: empty() });
       map.addLayer({ id: 'draft-fill', type: 'fill', source: 'draft', paint: { 'fill-color': '#f0a030', 'fill-opacity': 0.15 } });
       map.addLayer({ id: 'draft-line', type: 'line', source: 'draft', paint: { 'line-color': '#d07000', 'line-width': 2, 'line-dasharray': [2, 1] } });
@@ -44,12 +52,16 @@
       map.addLayer({ id: 'mids', type: 'circle', source: 'verts', filter: ['==', ['get', 'kind'], 'mid'], paint: { 'circle-radius': 4, 'circle-color': '#fde', 'circle-stroke-color': '#d07000', 'circle-stroke-width': 1 } });
       map.addSource('stops', { type: 'geojson', data: empty() });
       map.addLayer({ id: 'stops', type: 'circle', source: 'stops', paint: {
-        'circle-radius': ['interpolate', ['linear'], ['zoom'], 10, ['case', ['boolean', ['get', '_selected'], false], 7, 3], 14, ['case', ['boolean', ['get', '_selected'], false], 10, 6], 17, ['case', ['boolean', ['get', '_selected'], false], 13, 9]],
-        'circle-color': ['case', ['boolean', ['get', '_selected'], false], '#f0a030', ['boolean', ['get', '_member'], false], '#e0442a', '#2a9d4a'],
-        'circle-stroke-color': ['case', ['boolean', ['get', '_selected'], false], '#d07000', ['==', ['get', '_issue'], 'error'], '#d33', ['==', ['get', '_issue'], 'warn'], '#d78a00', '#fff'],
-        'circle-stroke-width': ['case', ['boolean', ['get', '_selected'], false], 3, ['has', '_issue'], 3, 1.5] } });
-      map.addLayer({ id: 'stop-issue', type: 'symbol', source: 'stops', filter: ['has', '_issue'], layout: { 'text-field': '!', 'text-size': 14, 'text-font': ['Noto Sans Regular'], 'text-offset': [0, -1.3], 'text-allow-overlap': true, 'text-ignore-placement': true }, paint: { 'text-color': ['case', ['==', ['get', '_issue'], 'error'], '#d33', '#d78a00'], 'text-halo-color': '#fff', 'text-halo-width': 1.5 } });
-      map.addLayer({ id: 'stop-label', type: 'symbol', source: 'stops', minzoom: 14, layout: { 'text-field': ['get', 'stop_name'], 'text-size': 11, 'text-offset': [0, 1.1], 'text-anchor': 'top', 'text-font': ['Noto Sans Regular'], 'text-optional': true }, paint: { 'text-color': '#222', 'text-halo-color': '#fff', 'text-halo-width': 1.2 } });
+        'circle-radius': ['interpolate', ['linear'], ['zoom'], 10, ['case', ['boolean', ['get', '_selected'], false], 8, 4], 14, ['case', ['boolean', ['get', '_selected'], false], 11, 7], 17, ['case', ['boolean', ['get', '_selected'], false], 14, 10]],
+        'circle-color': ['case', ['boolean', ['get', '_selected'], false], '#ff9800', ['boolean', ['get', '_member'], false], '#e53935', '#1e88e5'],
+        'circle-stroke-color': ['case', ['boolean', ['get', '_selected'], false], '#b35c00', ['==', ['get', '_issue'], 'error'], '#b71c1c', ['==', ['get', '_issue'], 'warn'], '#d78a00', '#fff'],
+        'circle-stroke-width': ['case', ['boolean', ['get', '_selected'], false], 3, ['has', '_issue'], 3, 2] } });
+      map.addLayer({ id: 'stop-issue', type: 'symbol', source: 'stops', filter: ['has', '_issue'], layout: { 'text-field': '!', 'text-size': 14, 'text-font': ['NotoSansCJKjp-Regular'], 'text-offset': [0, -1.3], 'text-allow-overlap': true, 'text-ignore-placement': true }, paint: { 'text-color': ['case', ['==', ['get', '_issue'], 'error'], '#d33', '#d78a00'], 'text-halo-color': '#fff', 'text-halo-width': 1.5 } });
+      map.addLayer({ id: 'stop-label', type: 'symbol', source: 'stops', minzoom: 13, layout: { 'text-field': ['get', 'stop_name'], 'text-size': 12, 'text-offset': [0, 1.0], 'text-anchor': 'top', 'text-font': ['NotoSansCJKjp-Regular'], 'text-optional': true }, paint: { 'text-color': '#1a1a1a', 'text-halo-color': '#fff', 'text-halo-width': 1.6 } });
+      // マウスを乗せたら名前を出す（拡大しなくても分かるように）
+      const tip = new maplibregl.Popup({ closeButton: false, closeOnClick: false, offset: 10, className: 'stop-tip' });
+      map.on('mousemove', 'stops', e => { const f = e.features[0]; if (!f) return; tip.setLngLat(f.geometry.coordinates).setText((f.properties.stop_name || '(名前なし)') + '　' + f.properties.stop_id).addTo(map); });
+      map.on('mouseleave', 'stops', () => tip.remove());
       wire();
     });
 
@@ -173,6 +185,23 @@
     }
 
     // ---- 右下のボタン（方角・現在地・拡大・縮小）----
+    const top = document.createElement('div');
+    top.className = 'map-top';
+    const sel = document.createElement('select');
+    sel.title = '背景の地図';
+    for (const [k, b] of Object.entries(BASEMAPS)) { const o = document.createElement('option'); o.value = k; o.textContent = b.label; sel.appendChild(o); }
+    const op = document.createElement('input'); op.type = 'range'; op.min = '20'; op.max = '100'; op.value = '80'; op.title = '背景の濃さ';
+    top.append(sel, op);
+    container.appendChild(top);
+    const applyBase = () => { if (!map.getLayer('base-pale')) return; for (const k of Object.keys(BASEMAPS)) { map.setLayoutProperty('base-' + k, 'visibility', k === sel.value ? 'visible' : 'none'); map.setPaintProperty('base-' + k, 'raster-opacity', (+op.value) / 100); } try { localStorage.setItem('basemap', sel.value); localStorage.setItem('baseOpacity', op.value); } catch (e) { /* 使えない環境 */ } };
+    try { const b = localStorage.getItem('basemap'); if (b && BASEMAPS[b]) sel.value = b; const o = localStorage.getItem('baseOpacity'); if (o) op.value = o; } catch (e) { /* 使えない環境 */ }
+    sel.addEventListener('change', applyBase); op.addEventListener('input', applyBase);
+    map.on('load', applyBase);
+    const legend = document.createElement('div');
+    legend.className = 'map-legend';
+    legend.innerHTML = '<span><i style="background:#1e88e5"></i>停留所</span><span><i style="background:#e53935"></i>選択中グループの停留所</span><span><i style="background:#ff9800"></i>選択中</span><span><i style="background:#fff;border:3px solid #b71c1c"></i>エラーあり</span><span><i style="background:rgba(124,77,255,.3);border:2px solid #5a2fd0;border-radius:2px"></i>区域</span>';
+    container.appendChild(legend);
+
     const ctl = document.createElement('div');
     ctl.className = 'map-ctl';
     ctl.innerHTML = '<button class="mc-compass" title="北を上に"><svg viewBox="0 0 24 24"><polygon points="12,2 16,12 12,10 8,12" fill="#e0442a"/><polygon points="12,22 8,12 12,14 16,12" fill="#999"/></svg></button>' +
