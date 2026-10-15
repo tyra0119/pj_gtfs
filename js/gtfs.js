@@ -115,6 +115,7 @@
         feed.others[base] = await entry.async('uint8array');
       }
     }
+    if (!Object.keys(feed.files).length) throw new Error('GTFS のファイル（.txt）が入っていません');
     for (const name of ORDER) if (feed.files[name]) addSpecColumns(feed, name);
     return feed;
   }

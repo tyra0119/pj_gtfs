@@ -872,7 +872,7 @@
     const after = () => { changed(); runValidate(); renderChanges(); renderZones(); renderTrips(); refreshMap(false); if (document.querySelector('#tab-files.active')) renderEditor(); };
     const addItem = (cls, title, changes, ops) => {
       const div = el('div', null, el('b', null, title));
-      if (changes && changes.length) div.append(el('div', { class: 'chg' }, changes.map(c => `${c.col}: "${c.from}" → "${c.to}"`).join('　')));
+      if (Array.isArray(changes) && changes.length) div.append(el('div', { class: 'chg' }, changes.map(c => `${c.col}: "${c.from}" → "${c.to}"`).join('　')));
       else if (changes) div.append(el('div', { class: 'chg' }, changes));
       const item = el('div', { class: 'diffitem ' + cls }, div);
       for (const [lab, fn] of ops) item.append(el('button', { class: 'btn small', onclick: fn }, lab));
@@ -901,7 +901,7 @@
   function ccw(ring) { let a = 0; for (let i = 0; i < ring.length - 1; i++) a += ring[i][0] * ring[i + 1][1] - ring[i + 1][0] * ring[i][1]; return a < 0 ? ring.slice().reverse() : ring; }
 
   // 開発者ツールから触れるように（デバッグ用）
-  window.FlexApp = { S, M, refreshMap, runValidate, selectStop, loadFeed };
+  window.FlexApp = { S, M, refreshMap, runValidate, selectStop, loadFeed, renderZones, renderTrips, renderEditor, renderChanges, setTab };
 
   // ---------- 起動: 前回の続き ----------
   (async () => {

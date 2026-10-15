@@ -28,7 +28,7 @@
     const stH = header(feed, 'stop_times.txt');
     if (stH.includes('start_pickup_dropoff_window') || stH.includes('end_pickup_dropoff_window')) return 'draft2020';
     if (header(feed, 'location_groups.txt').includes('location_id') && !has(feed, 'location_group_stops.txt')) return 'draft2020';
-    if (stH.includes('location_group_id') || stH.includes('location_id') || has(feed, 'location_group_stops.txt')) return 'canonical';
+    if (rows(feed, 'stop_times.txt').some(r => r.location_group_id || r.location_id) || has(feed, 'location_group_stops.txt')) return 'canonical';
     // 後期ドラフト: stop_times.stop_id に areas の id や locations の id が入っている
     const areaIds = new Set(rows(feed, 'areas.txt').map(r => r.area_id).concat(rows(feed, 'stop_areas.txt').map(r => r.area_id)));
     const lids = locIds(feed);
@@ -36,7 +36,7 @@
     const st = rows(feed, 'stop_times.txt');
     const hasWindow = st.some(r => r.start_pickup_drop_off_window || r.end_pickup_drop_off_window);
     if (hasWindow && st.some(r => r.stop_id && !stopIds.has(r.stop_id) && (areaIds.has(r.stop_id) || lids.has(r.stop_id)))) return 'draft2022';
-    if (DRAFT_ONLY_COLUMNS.some(c => stH.includes(c)) && !stH.includes('location_group_id')) return 'draft2022';
+    if (DRAFT_ONLY_COLUMNS.some(c => st.some(r => r[c])) && !st.some(r => r.location_group_id || r.location_id)) return 'draft2022';
     return 'canonical';
   }
 

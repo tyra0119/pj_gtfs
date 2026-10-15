@@ -188,7 +188,7 @@
         const multi = R('agency.txt').length > 1;
         R('routes.txt').forEach((r, i) => {
           if (!r.route_short_name && !r.route_long_name) err('routes.txt', i, 'route_long_name', 'route_short_name か route_long_name のどちらかが必要', 'cond_required');
-          if (!r.agency_id && multi) err('routes.txt', i, 'agency_id', '事業者が複数あるので agency_id が必要', 'cond_required');
+          if (!r.agency_id && multi) { const a0 = R('agency.txt')[0].agency_id; err('routes.txt', i, 'agency_id', '事業者が複数あるので agency_id が必要', 'cond_required', a0 ? c.setVal(r, 'agency_id', a0, `agency_id を最初の事業者 ${a0} にする（違えば直す）`, false) : null); }
           if (r.route_type && r.route_type !== '3' && r.route_type !== '715') info('routes.txt', i, 'route_type', `route_type ${r.route_type}（バスは 3。デマンド交通に拡張の 715 を使う例もある）`, 'route_type');
         });
       },
@@ -371,7 +371,7 @@
         else ltEmpty.forEach(r => err('stops.txt', stops.indexOf(r), 'location_type', `location_type が空（${jp} では必須。停留所は 0）`, 'jp_required', c.setVal(r, 'location_type', '0', 'location_type を 0（停留所）にする', true)));
         const only = agencies.length === 1 ? agencies[0].agency_id : '';
         R('routes.txt').forEach((r, i) => {
-          if (!r.agency_id) err('routes.txt', i, 'agency_id', `agency_id が空（${jp} では必須）`, 'jp_required', only ? c.setVal(r, 'agency_id', only, `agency_id を ${only} にする`, true) : null);
+          if (!r.agency_id && agencies.length <= 1) err('routes.txt', i, 'agency_id', `agency_id が空（${jp} では必須）`, 'jp_required', only ? c.setVal(r, 'agency_id', only, `agency_id を ${only} にする`, true) : null);
         });
         if (agencies.length > 1) R('fare_attributes.txt').forEach((r, i) => { if (!r.agency_id) err('fare_attributes.txt', i, 'agency_id', `事業者が複数あるので agency_id が必要（${jp}）`, 'jp_required'); });
         // 推奨の欄（v4 のみ）は行ごとに出すと多すぎるので、件数でまとめる
