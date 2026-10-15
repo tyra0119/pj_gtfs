@@ -101,7 +101,7 @@
       const role = new Map(), seq = new Map(), focus = new Set(), line = [];
       const mark = (sid, r) => { const p = r.pickup_type !== '1', d = r.drop_off_type !== '1'; const was = role.get(sid); const now = p && d ? 'both' : p ? 'pickup' : d ? 'dropoff' : null; if (!now) return; role.set(sid, was && was !== now ? 'both' : now); };
       st.forEach((r, k) => {
-        if (r.stop_id) { mark(r.stop_id, r); if (!seq.has(r.stop_id)) seq.set(r.stop_id, k + 1); const s = all.find(x => x.stop_id === r.stop_id); if (s && !isNaN(+s.stop_lat) && s.stop_lat !== '') line.push([+s.stop_lon, +s.stop_lat]); }
+        if (r.stop_id) { mark(r.stop_id, r); if (!seq.has(r.stop_id)) seq.set(r.stop_id, k + 1); const s = all.find(x => x.stop_id === r.stop_id); if (s && okLL(s)) line.push([+s.stop_lon, +s.stop_lat]); }
         else if (r.location_group_id) { focus.add(r.location_group_id); for (const m of lgs) if (m.location_group_id === r.location_group_id) mark(m.stop_id, r); }
         else if (r.location_id) focus.add(String(r.location_id));
       });
@@ -201,12 +201,27 @@
       list.get(sid).push(it);
     }
     S.stopIssues = m; S.stopIssueList = list;
+    // 区域ごと: locations.geojson のその区域と、その区域を使う便の行
+    const lm = new Map(); const st = rowsOf('stop_times.txt'); const feats = (S.feed.locations && S.feed.locations.features) || [];
+    for (const it of S.issues) {
+      if (it.level === 'info' || it.row == null) continue;
+      let id = null;
+      if (it.file === 'locations.geojson' && feats[it.row - 2]) id = String(feats[it.row - 2].id);
+      else if (it.file === 'stop_times.txt' && st[it.row - 2] && st[it.row - 2].location_id) id = String(st[it.row - 2].location_id);
+      if (id != null && (it.level === 'error' || !lm.has(id))) lm.set(id, it.level);
+    }
+    S.locIssueLevel = lm;
+  }
+  function locIssues(i) {
+    const f = S.feed.locations && S.feed.locations.features[i]; if (!f) return [];
+    const id = String(f.id), st = G.rows(S.feed, 'stop_times.txt');
+    return S.issues.filter(it => it.level !== 'info' && ((it.file === 'locations.geojson' && it.row === i + 2) || (it.file === 'stop_times.txt' && it.row != null && st[it.row - 2] && String(st[it.row - 2].location_id) === id)));
   }
   function refreshMap(fit) {
     if (!S.feed) return;
     M.map.resize();
     const feats = stopFeatures();
-    M.setLocations(S.feed.locations, S.loc, lastView && lastView.focus && lastView.focus.size ? lastView.focus : null);
+    M.setLocations(S.feed.locations, S.loc, lastView && lastView.focus && lastView.focus.size ? lastView.focus : null, S.locIssueLevel);
     // 読み込んだとき: 区域ポリゴンがあれば区域に寄せる（停留所の範囲が広いと小さな区域が見えなくなるため）。なければ停留所の範囲
     const locs = (S.feed.locations && S.feed.locations.features) || [];
     if (fit) M.fitTo(locs.length ? locs : feats);
@@ -359,9 +374,10 @@
     renderIssues();
     renderSteps();
     collectStopIssues();
+    fillFileSelect();
     renderGraph();
     refreshPopup();
-    if (M.map.getSource('stops')) stopFeatures();
+    if (M.map.getSource('stops')) { stopFeatures(); M.setLocations(S.feed.locations, S.loc, lastView && lastView.focus && lastView.focus.size ? lastView.focus : null, S.locIssueLevel); }
     if (S.mode === 'table') markBadCells();
   }
   // 運行事業者がゼロから作るときの手順。済んだものに ✔、未完のものは該当タブへ飛べる。
@@ -551,7 +567,10 @@
   function fillFileSelect() {
     const sel = $('#fileSelect'); sel.innerHTML = '';
     const names = SPEC.ORDER.filter(n => S.feed.files[n]).concat(Object.keys(S.feed.files).filter(n => !SPEC.ORDER.includes(n)));
-    for (const n of names) sel.append(el('option', { value: n }, `${n}（${SPEC.FILES[n] ? SPEC.FILES[n].label : '仕様外'}・${S.feed.files[n].rows.length} 行）`));
+    for (const n of names) {
+      const e = S.issues.filter(i => i.file === n && i.level === 'error').length, w = S.issues.filter(i => i.file === n && i.level === 'warn').length;
+      sel.append(el('option', { value: n, class: e ? 'opt-err' : w ? 'opt-warn' : '' }, `${e ? '✖ ' : w ? '△ ' : ''}${n}（${SPEC.FILES[n] ? SPEC.FILES[n].label : '仕様外'}・${S.feed.files[n].rows.length} 行${e ? '・エラー ' + e : ''}${w ? '・警告 ' + w : ''}）`));
+    }
     if (!names.includes(S.file)) S.file = names[0] || '';
     sel.value = S.file;
   }
@@ -670,16 +689,42 @@
     markBadCells();
     if (S.hlRow != null) { const tr = tbody.querySelector(`tr[data-row="${S.hlRow}"]`); if (tr) { tr.scrollIntoView({ block: 'center' }); const td = S.hlField && tr.querySelector(`td[data-col="${S.hlField}"]`); const inp = td && td.querySelector('input,select'); if (inp) inp.focus(); } }
   }
+  // 表の印: エラーは赤（bad）、警告は黄色に橙の線（warnc）。同じ欄に両方あればエラーを優先。
+  // 列に結び付かない指摘（または見えていない列の指摘）は行番号の欄に ✖ / △ を付ける。欄に乗せると内容が出る
   function markBadCells() {
     const box = $('#editor'); const tbody = box.querySelector('tbody'); if (!tbody) return;
-    tbody.querySelectorAll('td.bad').forEach(td => { td.classList.remove('bad'); td.title = ''; });
+    tbody.querySelectorAll('td.bad, td.warnc').forEach(td => { td.classList.remove('bad', 'warnc'); td.title = ''; });
+    tbody.querySelectorAll('td.rownum').forEach(td => { td.classList.remove('bad', 'warnc'); td.title = ''; td.textContent = String(+td.closest('tr').dataset.row + 2); });
     for (const it of S.issues) {
       if (it.file !== S.file || it.row == null || it.level === 'info') continue;
       const tr = tbody.querySelector(`tr[data-row="${it.row - 2}"]`); if (!tr) continue;
-      const td = it.field ? tr.querySelector(`td[data-col="${it.field}"]`) : null;
-      if (td) { td.classList.add('bad'); td.title = (td.title ? td.title + '\n' : '') + it.msg; }
+      const td = (it.field && tr.querySelector(`td[data-col="${it.field}"]`)) || tr.querySelector('td.rownum');
+      markCell(td, it.level, it.msg);
+      if (td.classList.contains('rownum')) td.textContent = (td.classList.contains('bad') ? '✖ ' : '△ ') + (it.row);
     }
   }
+  function markCell(td, level, msg) {
+    if (level === 'error') { td.classList.remove('warnc'); td.classList.add('bad'); } else if (!td.classList.contains('bad')) td.classList.add('warnc');
+    td.title = (td.title ? td.title + '\n' : '') + (level === 'error' ? '✖ ' : '△ ') + msg;
+  }
+  // 1 行ぶんの指摘（情報は除く）。欄ごとと、欄に結び付かないもの
+  function rowIssues(file, rowIdx) { return S.issues.filter(it => it.file === file && it.row === rowIdx + 2 && it.level !== 'info'); }
+  // 入力欄の並び（フォーム・停留所の欄）に印と文を付ける。inputs: 列名 → 入力欄。欄にない指摘は先頭にまとめて出す
+  function markForm(box, file, rowIdx, inputs, top) {
+    const list = rowIssues(file, rowIdx); if (!list.length) return;
+    const loose = [];
+    for (const it of list) {
+      const inp = it.field && inputs[it.field];
+      if (!inp) { loose.push(it); continue; }
+      inp.classList.add(it.level === 'error' ? 'in-err' : 'in-warn');
+      const msg = el('div', { class: 'iss-msg ' + it.level }, (it.level === 'error' ? '✖ ' : '△ ') + it.msg);
+      const after = inp.nextElementSibling && inp.nextElementSibling.classList.contains('help') ? inp.nextElementSibling : inp;
+      after.after(msg);
+    }
+    if (loose.length) (top || box).prepend(el('div', { class: 'iss-box' }, ...loose.map(it => el('div', { class: 'iss-msg ' + it.level }, (it.level === 'error' ? '✖ ' : '△ ') + it.msg))));
+  }
+  // 指摘のいちばん重いもの（error / warn / null）
+  function worst(list) { return list.some(i => i.level === 'error') ? 'error' : list.some(i => i.level === 'warn') ? 'warn' : null; }
   function defaultsFor(file) {
     const o = {};
     for (const fd of (SPEC.FILES[file] ? SPEC.FILES[file].fields : [])) if (fd.default != null) o[fd.name] = fd.default;
@@ -713,6 +758,7 @@
       if (fd && fd.help) form.append(el('div', { class: 'help' }, fd.help));
     }
     box.append(form);
+    markForm(form, S.file, S.formIndex, inputs, form);
     // 予約の種類で使える欄が変わる。使えない欄は灰色にして、入っている値は残す（検証で指摘される）
     function applyBookingEnable() {
       const bt = r.booking_type;
@@ -765,7 +811,8 @@
     renderMapView();
     const gs = $('#groupSelect'); gs.innerHTML = '';
     const groups = G.rows(S.feed, 'location_groups.txt');
-    for (const g of groups) gs.append(el('option', { value: g.location_group_id }, `${g.location_group_id}: ${g.location_group_name || '(名前なし)'}`));
+    const gIss = new Map(); groups.forEach((g, k) => gIss.set(g.location_group_id, worst(rowIssues('location_groups.txt', k))));
+    for (const g of groups) { const w = gIss.get(g.location_group_id); gs.append(el('option', { value: g.location_group_id, class: w ? 'opt-' + (w === 'error' ? 'err' : 'warn') : '' }, `${w === 'error' ? '✖ ' : w === 'warn' ? '△ ' : ''}${g.location_group_id}: ${g.location_group_name || '(名前なし)'}`)); }
     if (!groups.some(g => g.location_group_id === S.group)) S.group = groups[0] ? groups[0].location_group_id : '';
     gs.value = S.group;
     const g = groups.find(x => x.location_group_id === S.group);
@@ -774,7 +821,7 @@
     $('#groupCount').textContent = g ? `停留所 ${memberSet(S.group).size} 件` : '';
     const ls = $('#locSelect'); ls.innerHTML = '';
     const feats = (S.feed.locations && S.feed.locations.features) || [];
-    feats.forEach((f, i) => ls.append(el('option', { value: i }, `${f.id}: ${(f.properties || {}).stop_name || '(名前なし)'}`)));
+    feats.forEach((f, i) => { const w = worst(locIssues(i)); ls.append(el('option', { value: i, class: w ? 'opt-' + (w === 'error' ? 'err' : 'warn') : '' }, `${w === 'error' ? '✖ ' : w === 'warn' ? '△ ' : ''}${f.id}: ${(f.properties || {}).stop_name || '(名前なし)'}`)); });
     if (S.loc >= feats.length) S.loc = feats.length - 1;
     ls.value = S.loc;
     const lf = $('#locForm'); lf.innerHTML = '';
@@ -790,6 +837,11 @@
       }
       const n = f.geometry && f.geometry.type === 'Polygon' ? f.geometry.coordinates[0].length - 1 : '-';
       lf.append(el('label', null, '頂点'), el('div', { class: 'muted' }, `${n} 点（${f.geometry ? f.geometry.type : '-'}）`));
+      // この区域の指摘（区域そのものと、この区域を使う便の行）
+      // 同じ文の指摘（便の行ごとに出るもの）は 1 行にまとめて件数を付ける
+      const byMsg = new Map(); for (const it of locIssues(S.loc)) { const k = it.level + it.msg; if (!byMsg.has(k)) byMsg.set(k, []); byMsg.get(k).push(it); }
+      const gs2 = [...byMsg.values()].sort((x, y) => (x[0].level === 'error' ? 0 : 1) - (y[0].level === 'error' ? 0 : 1));
+      if (gs2.length) lf.prepend(el('div', { class: 'iss-box' }, ...gs2.slice(0, 5).map(g => el('div', { class: 'iss-msg ' + g[0].level }, (g[0].level === 'error' ? '✖ ' : '△ ') + g[0].msg + (g.length > 1 ? ` ×${g.length}` : ''))), gs2.length > 5 ? el('div', { class: 'muted small' }, `ほか ${gs2.length - 5} 種類（検証タブで）`) : null));
     }
     renderStopForm();
   }
@@ -884,6 +936,8 @@
   }
   // 停留所を選ぶ。地図のクリック、「停留所を探す」、表からの移動で共通に使う
   let stopPopup = null, locPopup = null;
+  // 地図に置ける座標か（空・数でない・緯度 ±90／経度 ±180 の外は置けない）
+  function okLL(r) { const a = parseFloat(r.stop_lat), o = parseFloat(r.stop_lon); return r.stop_lat !== '' && r.stop_lon !== '' && !isNaN(a) && !isNaN(o) && Math.abs(a) <= 90 && Math.abs(o) <= 180; }
   function closeLocPopup() { if (locPopup) { locPopup.remove(); locPopup = null; } }
   function closePopups() { closeLocPopup(); if (stopPopup) { stopPopup.remove(); stopPopup = null; } }
   function selectStop(id, o) {
@@ -893,7 +947,7 @@
     const r = id && G.rows(S.feed, 'stops.txt').find(x => x.stop_id === id);
     if (stopPopup) { stopPopup.remove(); stopPopup = null; }
     closeLocPopup();
-    if (!r || isNaN(+r.stop_lat) || isNaN(+r.stop_lon)) return;
+    if (!r || !okLL(r)) return; // 座標が空・数でない・範囲外（緯度 99 など）なら地図は動かさない（地図ライブラリが止まるため）
     if (o.center) M.map.easeTo({ center: [+r.stop_lon, +r.stop_lat], zoom: Math.max(M.map.getZoom(), 15) });
     if (!o.popup) return;
     stopPopup = new maplibregl.Popup({ offset: 12, maxWidth: '300px', focusAfterOpen: false }).setLngLat([+r.stop_lon, +r.stop_lat]).setDOMContent(stopPopupContent(r)).addTo(M.map);
@@ -942,8 +996,7 @@
     const c = locCenter(f); const km2 = c ? ringArea(f) * 111.32 * 111.32 * Math.cos(c[1] * Math.PI / 180) : 0;
     const n = f.geometry && f.geometry.type === 'Polygon' ? f.geometry.coordinates[0].length - 1 : null;
     // この区域の指摘: locations.geojson のこの区域、stop_times.txt でこの区域を使う行
-    const st = R('stop_times.txt');
-    const issues = S.issues.filter(it => it.level !== 'info' && ((it.file === 'locations.geojson' && it.row === i + 2) || (it.file === 'stop_times.txt' && it.row != null && st[it.row - 2] && String(st[it.row - 2].location_id) === id)));
+    const issues = locIssues(i);
     const box = el('div', { class: 'stop-popup loc-popup' },
       el('b', null, p.stop_name || '(名前なし)'),
       el('div', { class: 'muted small' }, `区域 id ${id}　${f.geometry ? f.geometry.type : '形なし'}${n ? '・頂点 ' + n : ''}${km2 && isFinite(km2) ? `　約 ${km2 < 1 ? km2.toFixed(2) : km2.toFixed(1)} km²` : ''}`));
@@ -984,7 +1037,8 @@
     const r = G.rows(S.feed, 'stops.txt').find(x => x.stop_id === stopPopup._sid) || (S.stop && G.rows(S.feed, 'stops.txt').find(x => x.stop_id === S.stop));
     if (!r) { stopPopup.remove(); stopPopup = null; return; }
     stopPopup._sid = r.stop_id;
-    if (!isNaN(+r.stop_lat) && !isNaN(+r.stop_lon) && r.stop_lat !== '' && r.stop_lon !== '') stopPopup.setLngLat([+r.stop_lon, +r.stop_lat]);
+    if (!okLL(r)) { stopPopup.remove(); stopPopup = null; return; }
+    stopPopup.setLngLat([+r.stop_lon, +r.stop_lat]);
     stopPopup.setDOMContent(stopPopupContent(r));
   }
   function stopPopupContent(r) {
@@ -1040,11 +1094,12 @@
     const rest = header.filter(c => c && !main.includes(c));
     const addField = c => {
       const inp = cellInput('stops.txt', c, r, () => { refreshMap(false); renderStopForm(); }, () => { refreshMap(false); refreshPopup(); });
-      inp.dataset.col = c;
+      inp.dataset.col = c; stopInputs[c] = inp;
       const fd = SPEC.field('stops.txt', c);
       box.append(el('label', { title: c + (reqTitle(fd) ? '　' + reqTitle(fd) : '') }, (fd ? fd.label : c) + ' ', el('small', { class: 'muted' }, c), reqMark(fd)), inp);
       if (fd && fd.help) box.append(el('div', { class: 'help' }, fd.help));
     };
+    const stopInputs = {};
     for (const c of main) if (header.includes(c) || main.includes(c)) addField(c);
     if (rest.length) {
       const tog = el('button', { class: 'btn small', onclick: () => { S.stopFormAll = !S.stopFormAll; renderStopForm(); } }, S.stopFormAll ? `その他の欄を隠す（${rest.length}）` : `その他の欄を表示（${rest.length}）`);
@@ -1052,6 +1107,7 @@
       if (S.stopFormAll) for (const c of rest) addField(c);
     }
     box.append(el('label', null, 'グループ'), groupMembershipUI(r.stop_id, () => renderStopForm()));
+    markForm(box, 'stops.txt', G.rows(S.feed, 'stops.txt').indexOf(r), stopInputs, null);
   }
 
   // ---------- 便を追加 ----------

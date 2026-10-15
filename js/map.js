@@ -42,7 +42,8 @@
     map.on('load', () => {
       map.addSource('locations', { type: 'geojson', data: empty() });
       map.addLayer({ id: 'loc-fill', type: 'fill', source: 'locations', paint: { 'fill-color': ['case', ['boolean', ['get', '_selected'], false], '#f0a030', '#7c4dff'], 'fill-opacity': ['case', ['boolean', ['get', '_dim'], false], 0.05, 0.22] } });
-      map.addLayer({ id: 'loc-line', type: 'line', source: 'locations', paint: { 'line-color': ['case', ['boolean', ['get', '_selected'], false], '#d07000', '#5a2fd0'], 'line-width': 3, 'line-opacity': ['case', ['boolean', ['get', '_dim'], false], 0.25, 1] } });
+      // 区域の線: 選択中は橙、エラーのある区域は赤、警告のある区域は黄土色（太め）
+      map.addLayer({ id: 'loc-line', type: 'line', source: 'locations', paint: { 'line-color': ['case', ['boolean', ['get', '_selected'], false], '#d07000', ['==', ['get', '_issue'], 'error'], '#d33', ['==', ['get', '_issue'], 'warn'], '#e0a000', '#5a2fd0'], 'line-width': ['case', ['has', '_issue'], 4, 3], 'line-opacity': ['case', ['boolean', ['get', '_dim'], false], 0.25, 1] } });
       // 選んだ便の経路（停留所を順に結ぶ線。shapes.txt があればその形）
       map.addSource('trip-line', { type: 'geojson', data: empty() });
       map.addLayer({ id: 'trip-line', type: 'line', source: 'trip-line', layout: { 'line-join': 'round', 'line-cap': 'round' }, paint: { 'line-color': '#00897b', 'line-width': 4, 'line-opacity': 0.8 } });
@@ -165,7 +166,7 @@
       const feats = [];
       for (const r of rows) {
         const lat = parseFloat(r.stop_lat), lon = parseFloat(r.stop_lon);
-        if (isNaN(lat) || isNaN(lon)) continue;
+        if (isNaN(lat) || isNaN(lon) || Math.abs(lat) > 90 || Math.abs(lon) > 180) continue; // 範囲外の座標は置けない（検証で指摘する）
         const props = { stop_id: r.stop_id, stop_name: r.stop_name || '', _member: state.memberIds.has(r.stop_id), _selected: r.stop_id === state.selectedStop };
         if (o.colorOf && o.colorOf.has(r.stop_id)) props._color = o.colorOf.get(r.stop_id);
         if (o.seqOf && o.seqOf.has(r.stop_id)) props._seq = String(o.seqOf.get(r.stop_id));
@@ -176,9 +177,10 @@
       return feats;
     }
     // focus: 強調する区域の id の集合（選んだ便が使う区域）。ほかは薄くする。null なら全部ふつう
-    function setLocations(fc, selectedIndex, focus) {
+    // issues: 区域の id → 'error' / 'warn'（線の色を変える）
+    function setLocations(fc, selectedIndex, focus, issues) {
       state.selectedFeature = selectedIndex == null ? -1 : selectedIndex;
-      const feats = ((fc && fc.features) || []).map((f, i) => ({ type: 'Feature', properties: Object.assign({}, f.properties || {}, { _id: f.id, _index: i, _selected: i === state.selectedFeature, _dim: !!(focus && !focus.has(String(f.id))) }), geometry: f.geometry }));
+      const feats = ((fc && fc.features) || []).map((f, i) => { const p = Object.assign({}, f.properties || {}, { _id: f.id, _index: i, _selected: i === state.selectedFeature, _dim: !!(focus && !focus.has(String(f.id))) }); const lv = issues && issues.get(String(f.id)); if (lv) p._issue = lv; return { type: 'Feature', properties: p, geometry: f.geometry }; });
       const src = map.getSource('locations'); if (src) src.setData({ type: 'FeatureCollection', features: feats });
       renderVerts(fc);
     }
@@ -199,7 +201,7 @@
     function fitTo(feats) {
       const b = new maplibregl.LngLatBounds();
       let n = 0;
-      const walk = c => { if (typeof c[0] === 'number') { b.extend(c); n++; } else c.forEach(walk); };
+      const walk = c => { if (typeof c[0] === 'number') { if (Math.abs(c[1]) <= 90 && Math.abs(c[0]) <= 180) { b.extend(c); n++; } } else c.forEach(walk); };
       for (const f of feats) if (f && f.geometry) walk(f.geometry.coordinates);
       if (n) map.fitBounds(b, { padding: 60, maxZoom: 15, duration: 600 });
     }
@@ -219,7 +221,7 @@
     map.on('load', applyBase);
     const legend = document.createElement('div');
     legend.className = 'map-legend';
-    legend.innerHTML = '<span><i style="background:#1e88e5"></i>停留所</span><span><i style="background:#e53935"></i>選択中グループの停留所</span><span><i style="background:#ff9800"></i>選択中</span><span><i style="background:#fff;border:3px solid #b71c1c"></i>エラーあり</span><span><i style="background:rgba(124,77,255,.3);border:2px solid #5a2fd0;border-radius:2px"></i>区域</span>';
+    legend.innerHTML = '<span><i style="background:#1e88e5"></i>停留所</span><span><i style="background:#e53935"></i>選択中グループの停留所</span><span><i style="background:#ff9800"></i>選択中</span><span><i style="background:#fff;border:3px solid #b71c1c"></i>エラーあり</span><span><i style="background:#fff;border:3px solid #d78a00"></i>警告あり</span><span><i style="background:rgba(124,77,255,.3);border:2px solid #5a2fd0;border-radius:2px"></i>区域</span>';
     container.appendChild(legend);
 
     const ctl = document.createElement('div');

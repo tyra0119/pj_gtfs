@@ -77,6 +77,19 @@ table.grid td input:focus, table.grid td select:focus { outline: 2px solid var(-
 table.grid td.rownum { color: var(--muted); text-align: right; padding: 3px 6px; background: #fafafa; white-space: nowrap; }
 table.grid tr.hl td { background: #fff5d6; }
 table.grid td.bad, table.grid tr.hl td.bad { background: #fbbcbc; }
+/* 警告: 黄色の地に橙の線（エラーの赤と見分ける） */
+table.grid td.warnc, table.grid tr.hl td.warnc { background: #fff1c2; box-shadow: inset 3px 0 0 var(--warn); }
+table.grid td.bad input, table.grid td.bad select, table.grid td.warnc input, table.grid td.warnc select { background: transparent; }
+table.grid td.rownum.bad { color: var(--err); font-weight: 700; }
+table.grid td.rownum.warnc { color: #8a5a00; font-weight: 700; }
+.in-err { border-color: var(--err) !important; background: #fdecec; }
+.in-warn { border-color: var(--warn) !important; background: #fff6dc; }
+.iss-msg { font-size: 12px; padding: 2px 6px; border-left: 3px solid var(--warn); background: #fff6dc; color: #6b4a00; }
+.iss-msg.error { border-color: var(--err); background: #fdecec; color: #8a1f1f; }
+.form .iss-msg { grid-column: 2; }
+.iss-box { display: flex; flex-direction: column; gap: 2px; margin: 4px 0; grid-column: 1 / -1; }
+option.opt-err { color: #b00; }
+option.opt-warn { color: #8a5a00; }
 table.grid td.del { text-align: center; }
 table.grid td.del button { border: 0; background: transparent; cursor: pointer; color: var(--muted); }
 textarea.csv { flex: 1; width: 100%; min-height: 300px; font: 12px/1.4 ui-monospace, Consolas, monospace; white-space: pre; resize: vertical; }
