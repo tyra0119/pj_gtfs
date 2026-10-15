@@ -179,3 +179,4 @@ table.grid th .coldel:hover { color: var(--err); }
 .groups { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; font-size: 12px; margin-top: 4px; }
 .groups .chip { display: inline-flex; align-items: center; gap: 2px; background: #fde2e2; color: #8a1c1c; border-radius: 10px; padding: 1px 6px 1px 8px; }
 .groups .chip button { border: 0; background: transparent; color: #a33; cursor: pointer; font-size: 11px; padding: 0 2px; }
+.steps li.current { background: #fff5d6; }

@@ -234,7 +234,8 @@
     let doneCount = 0;
     for (const st of steps) {
       if (st.done) doneCount++;
-      ol.append(el('li', { class: st.done ? 'done' : '' }, el('span', { class: 'mark' }, st.done ? '✔' : '○'), el('span', { class: 'lab' }, st.label, st.note ? el('small', { class: 'muted' }, '　' + st.note) : null), st.done ? null : el('button', { class: 'btn small', onclick: st.go }, '開く')));
+      const go = () => { S.backTo = { kind: 'steps', label: st.label, scrollTop: 0 }; $('#btnBack').textContent = '← 作成の手順に戻る'; $('#backInfo').textContent = st.label; $('#backBar').hidden = false; st.go(); };
+      ol.append(el('li', { class: st.done ? 'done' : '' }, el('span', { class: 'mark' }, st.done ? '✔' : '○'), el('span', { class: 'lab' }, st.label, st.note ? el('small', { class: 'muted' }, '　' + st.note) : null), st.done ? null : el('button', { class: 'btn small', onclick: go }, '開く')));
     }
     $('#stepsCount').textContent = `${doneCount} / ${steps.length}`;
     $('#stepsBox').open = doneCount < steps.length - 1;
@@ -289,7 +290,8 @@
   }
   // 検証結果から該当箇所へ。戻れるように、どこから来たかを覚えておく
   function jumpTo(it) {
-    S.backTo = { issue: it, scrollTop: $('#issueList').scrollTop };
+    S.backTo = { kind: 'issue', issue: it, scrollTop: $('#issueList').scrollTop };
+    $('#btnBack').textContent = '← 検証結果に戻る';
     $('#backInfo').textContent = it.msg;
     $('#backBar').hidden = false;
     document.querySelectorAll('#issueList li').forEach(li => li.classList.toggle('current', li._issue === it));
@@ -324,9 +326,14 @@
   $('#btnBack').addEventListener('click', () => {
     const b = S.backTo; if (!b) return;
     setTab('validate');
-    const ul = $('#issueList'); ul.scrollTop = b.scrollTop;
-    const li = [...ul.querySelectorAll('li')].find(x => x._issue === b.issue);
-    if (li) { li.classList.add('current'); li.scrollIntoView({ block: 'center' }); }
+    if (b.kind === 'steps') {
+      const box = $('#stepsBox'); box.open = true; box.scrollIntoView({ block: 'start' });
+      const li = [...$('#steps').querySelectorAll('li')].find(x => x.textContent.includes(b.label)); if (li) { li.classList.add('current'); setTimeout(() => li.classList.remove('current'), 2000); }
+    } else {
+      const ul = $('#issueList'); ul.scrollTop = b.scrollTop;
+      const li = [...ul.querySelectorAll('li')].find(x => x._issue === b.issue);
+      if (li) { li.classList.add('current'); li.scrollIntoView({ block: 'center' }); }
+    }
     $('#backBar').hidden = true;
   });
 
