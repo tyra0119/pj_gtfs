@@ -42,7 +42,7 @@
     map.on('load', () => {
       map.addSource('locations', { type: 'geojson', data: empty() });
       map.addLayer({ id: 'loc-fill', type: 'fill', source: 'locations', paint: { 'fill-color': ['case', ['boolean', ['get', '_selected'], false], '#f0a030', '#7c4dff'], 'fill-opacity': 0.22 } });
-      map.addLayer({ id: 'loc-line', type: 'line', source: 'locations', paint: { 'line-color': ['case', ['boolean', ['get', '_selected'], false], '#d07000', '#5a2fd0'], 'line-width': 2.5 } });
+      map.addLayer({ id: 'loc-line', type: 'line', source: 'locations', paint: { 'line-color': ['case', ['boolean', ['get', '_selected'], false], '#d07000', '#5a2fd0'], 'line-width': 3 } });
       map.addLayer({ id: 'loc-label', type: 'symbol', source: 'locations', layout: { 'text-field': ['coalesce', ['get', 'stop_name'], ['get', '_id']], 'text-size': 13, 'text-font': ['NotoSansCJKjp-Regular'] }, paint: { 'text-color': '#1a3f8a', 'text-halo-color': '#fff', 'text-halo-width': 1.5 } });
       map.addSource('draft', { type: 'geojson', data: empty() });
       map.addLayer({ id: 'draft-fill', type: 'fill', source: 'draft', paint: { 'fill-color': '#f0a030', 'fill-opacity': 0.15 } });

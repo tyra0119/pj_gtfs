@@ -101,7 +101,9 @@
     M.map.resize();
     const feats = stopFeatures();
     M.setLocations(S.feed.locations, S.loc);
-    if (fit) M.fitTo(feats.concat((S.feed.locations && S.feed.locations.features) || []));
+    // 読み込んだとき: 区域ポリゴンがあれば区域に寄せる（停留所の範囲が広いと小さな区域が見えなくなるため）。なければ停留所の範囲
+    const locs = (S.feed.locations && S.feed.locations.features) || [];
+    if (fit) M.fitTo(locs.length ? locs : feats);
   }
 
   // ---------- 変更・保存 ----------

@@ -41,6 +41,14 @@
       serviceIds: new Set([...R('calendar.txt').map(r => r.service_id), ...R('calendar_dates.txt').map(r => r.service_id)].filter(Boolean)),
       locIds: new Map(),
       today: today(),
+      // 日本のデータか: 事業者のタイムゾーンが Asia/Tokyo、タイムゾーンがなければ停留所の過半が日本の範囲。海外のデータに「日本の範囲外」を出さないため
+      japan: (() => {
+        const tzs = R('agency.txt').map(a => a.agency_timezone).filter(Boolean);
+        if (tzs.length) return tzs.includes('Asia/Tokyo');
+        const st = R('stops.txt').filter(r => r.stop_lat && r.stop_lon);
+        if (!st.length) return true;
+        return st.filter(r => +r.stop_lat >= JP.latMin && +r.stop_lat <= JP.latMax && +r.stop_lon >= JP.lonMin && +r.stop_lon <= JP.lonMax).length / st.length >= 0.5;
+      })(),
     };
     for (const [name, spec] of Object.entries(FILES)) {
       if (!spec.key || !F[name]) continue;
@@ -173,9 +181,13 @@
             if (!r.stop_lat || !r.stop_lon) err('stops.txt', i, 'stop_lat', '緯度経度が空', 'cond_required');
             else {
               const lat = parseFloat(r.stop_lat), lon = parseFloat(r.stop_lon);
-              if (!isNaN(lat) && !isNaN(lon) && Math.abs(lon) <= 180 && !(lat >= JP.latMin && lat <= JP.latMax && lon >= JP.lonMin && lon <= JP.lonMax)) {
+              const swapFix = { label: '緯度と経度を入れ替える', safe: true, apply: () => { const a = r.stop_lat; r.stop_lat = r.stop_lon; r.stop_lon = a; } };
+              if (c.japan && !isNaN(lat) && !isNaN(lon) && Math.abs(lon) <= 180 && !(lat >= JP.latMin && lat <= JP.latMax && lon >= JP.lonMin && lon <= JP.lonMax)) {
                 const swapped = lon >= JP.latMin && lon <= JP.latMax && lat >= JP.lonMin && lat <= JP.lonMax;
-                warn('stops.txt', i, 'stop_lat', `日本の範囲外の座標（${lat}, ${lon}）。緯度と経度が逆になっていないか`, 'coord_outside_japan', swapped ? { label: '緯度と経度を入れ替える', safe: true, apply: () => { const a = r.stop_lat; r.stop_lat = r.stop_lon; r.stop_lon = a; } } : null);
+                warn('stops.txt', i, 'stop_lat', `日本の範囲外の座標（${lat}, ${lon}）。緯度と経度が逆になっていないか`, 'coord_outside_japan', swapped ? swapFix : null);
+              } else if (!c.japan && !isNaN(lat) && !isNaN(lon) && Math.abs(lat) > 90 && Math.abs(lon) <= 90) {
+                // 海外のデータ: 緯度が 90 を超えていて経度が 90 以内なら、逆に書いている
+                warn('stops.txt', i, 'stop_lat', `緯度が ${lat}（±90 を超える）。緯度と経度が逆になっていないか`, 'coord_swapped', swapFix);
               }
             }
           }
@@ -238,7 +250,7 @@
             if (k > 0 && area > 0) warn('locations.geojson', i, 'geometry', `区域 "${id}" の穴が反時計回り（RFC 7946 は時計回り）`, 'ring_winding', { label: '向きを反転する', safe: true, apply: () => { ring.reverse(); } });
             if (Math.abs(area) < 1e-10) warn('locations.geojson', i, 'geometry', `区域 "${id}" の面積がほぼ 0`, 'ring_zero');
             if (selfIntersects(ring)) warn('locations.geojson', i, 'geometry', `区域 "${id}" の辺が交差している（8 の字になっている）`, 'ring_cross');
-            for (const p of ring) if (!(p[1] >= JP.latMin && p[1] <= JP.latMax && p[0] >= JP.lonMin && p[0] <= JP.lonMax)) { warn('locations.geojson', i, 'geometry', `区域 "${id}" に日本の範囲外の座標がある（[経度, 緯度] の順か）`, 'coord_outside_japan'); break; }
+            if (c.japan) for (const p of ring) if (!(p[1] >= JP.latMin && p[1] <= JP.latMax && p[0] >= JP.lonMin && p[0] <= JP.lonMax)) { warn('locations.geojson', i, 'geometry', `区域 "${id}" に日本の範囲外の座標がある（[経度, 緯度] の順か）`, 'coord_outside_japan'); break; }
           }));
           if (!f.properties || !f.properties.stop_name) info('locations.geojson', i, 'stop_name', `区域 "${id}" に stop_name がない（案内の表示名に使われる）`, 'loc_name');
         });
