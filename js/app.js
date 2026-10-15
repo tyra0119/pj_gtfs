@@ -9,7 +9,8 @@
     feed: null, original: null, name: '', issues: [], dirty: false, diff: null, diffFile: '',
     file: 'stop_times.txt', mode: 'table', page: 0, pageSize: 200, filter: '', hlRow: null, formIndex: 0,
     group: '', loc: -1, stop: null, disabledRules: new Set(), profile: 'jp4',
-    stopView: 'all', viewTrip: '', // 地図に出す停留所（all / grouped / ungrouped / g:<グループ>）と、地図に出す便 profilePref: 'jp4', profileKey: null, japan: true,
+    profilePref: 'jp4', profileKey: null, japan: true,
+    stopView: 'all', viewTrip: '', // 地図に出す停留所（all / grouped / ungrouped / g:<グループ>）と、地図に出す便
   };
   const PAGE_SIZE = 200;
 
