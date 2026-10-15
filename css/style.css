@@ -8,7 +8,13 @@ body { font: 14px/1.5 system-ui, -apple-system, "Segoe UI", "Hiragino Sans", "No
 .topbar { display: flex; align-items: center; gap: 12px; padding: 6px 12px; background: var(--panel); border-bottom: 1px solid var(--line); flex-wrap: wrap; }
 .brand { font-weight: 700; font-size: 15px; }
 .actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
-.odpt { display: flex; gap: 4px; }
+.odpt { display: flex; gap: 4px; align-items: center; }
+.grp { display: flex; flex-direction: column; gap: 2px; padding: 0 10px; border-left: 1px solid var(--line); }
+.grp:first-child { border-left: none; padding-left: 0; }
+.grp-label { font-size: 11px; font-weight: 700; color: #5a6b80; }
+.grp-body { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+.grp-body .or { font-size: 11px; color: #8a96a6; }
+.actions .status { align-self: flex-end; font-size: 12px; }
 .odpt select { max-width: 280px; }
 .btn { display: inline-block; padding: 5px 10px; border: 1px solid var(--line); border-radius: 6px; background: #fff; cursor: pointer; font: inherit; color: var(--text); }
 .btn:hover { background: #f0f3f7; }
@@ -178,6 +184,9 @@ table.grid th .coldel:hover { color: var(--err); }
 /* 地図の背景切り替えと凡例 */
 .map-top { position: absolute; right: 12px; top: 12px; z-index: 5; display: flex; gap: 6px; align-items: center; background: rgba(255,255,255,.92); padding: 4px 6px; border-radius: 8px; box-shadow: 0 1px 4px rgba(0,0,0,.25); }
 .map-top select { font-size: 12px; padding: 2px 4px; }
+.map-top { flex-wrap: wrap; justify-content: flex-end; max-width: calc(100% - 24px); }
+.map-top #viewStops, .map-top #viewTrip { max-width: 190px; }
+.map-legend .legend-extra { display: flex; flex-wrap: wrap; gap: 4px 10px; width: 100%; border-top: 1px solid #ddd; padding-top: 3px; }
 .map-top input[type=range] { width: 70px; }
 .map-legend { position: absolute; left: 12px; bottom: 52px; z-index: 5; background: rgba(255,255,255,.92); padding: 4px 8px; border-radius: 8px; box-shadow: 0 1px 4px rgba(0,0,0,.25); font-size: 11px; display: flex; flex-wrap: wrap; gap: 4px 10px; max-width: 320px; }
 .map-legend span { display: inline-flex; align-items: center; gap: 4px; }

@@ -8,7 +8,8 @@
   const S = {
     feed: null, original: null, name: '', issues: [], dirty: false, diff: null, diffFile: '',
     file: 'stop_times.txt', mode: 'table', page: 0, pageSize: 200, filter: '', hlRow: null, formIndex: 0,
-    group: '', loc: -1, stop: null, disabledRules: new Set(), profile: 'jp4', profilePref: 'jp4', profileKey: null, japan: true,
+    group: '', loc: -1, stop: null, disabledRules: new Set(), profile: 'jp4',
+    stopView: 'all', viewTrip: '', // 地図に出す停留所（all / grouped / ungrouped / g:<グループ>）と、地図に出す便 profilePref: 'jp4', profileKey: null, japan: true,
   };
   const PAGE_SIZE = 200;
 
@@ -83,7 +84,104 @@
   });
   function toggleMode(m) { M.setMode(M.getMode() === m ? 'none' : m); }
 
-  function stopFeatures() { return M.setStops(G.rows(S.feed, 'stops.txt'), memberSet(S.group), S.stop, S.stopIssues); }
+  // 地図に出す停留所。選んだ便があればその便の停留所（乗る所・降りる所で色分け、順番つき）、なければ停留所の表示の選択に従う。
+  // グループへの出し入れの最中は、入っていない停留所も選べるようにすべて出す。選んでいる停留所はいつも出す
+  const GROUP_COLORS = ['#e53935', '#8e24aa', '#00897b', '#f4511e', '#3949ab', '#7cb342', '#c0ca33', '#6d4c41', '#d81b60', '#00acc1'];
+  const ROLE_COLOR = { pickup: '#2e7d32', dropoff: '#ad1457', both: '#00838f' };
+  function stopView() {
+    const all = G.rows(S.feed, 'stops.txt');
+    const lgs = G.rows(S.feed, 'location_group_stops.txt');
+    const res = { rows: all, colorOf: null, seqOf: null, legend: null, focus: null, line: null };
+    if (M.getMode() === 'pickStops') return res;
+    const keep = rows => (S.stop && !rows.some(r => r.stop_id === S.stop) ? rows.concat(all.filter(r => r.stop_id === S.stop)) : rows);
+    const trip = S.viewTrip && G.rows(S.feed, 'trips.txt').find(t => t.trip_id === S.viewTrip);
+    if (trip) {
+      const st = G.rows(S.feed, 'stop_times.txt').filter(r => r.trip_id === trip.trip_id).sort((a, b) => +a.stop_sequence - +b.stop_sequence);
+      const role = new Map(), seq = new Map(), focus = new Set(), line = [];
+      const mark = (sid, r) => { const p = r.pickup_type !== '1', d = r.drop_off_type !== '1'; const was = role.get(sid); const now = p && d ? 'both' : p ? 'pickup' : d ? 'dropoff' : null; if (!now) return; role.set(sid, was && was !== now ? 'both' : now); };
+      st.forEach((r, k) => {
+        if (r.stop_id) { mark(r.stop_id, r); if (!seq.has(r.stop_id)) seq.set(r.stop_id, k + 1); const s = all.find(x => x.stop_id === r.stop_id); if (s && !isNaN(+s.stop_lat) && s.stop_lat !== '') line.push([+s.stop_lon, +s.stop_lat]); }
+        else if (r.location_group_id) { focus.add(r.location_group_id); for (const m of lgs) if (m.location_group_id === r.location_group_id) mark(m.stop_id, r); }
+        else if (r.location_id) focus.add(String(r.location_id));
+      });
+      // shapes.txt があればその形を線にする
+      if (trip.shape_id) { const sh = G.rows(S.feed, 'shapes.txt').filter(x => x.shape_id === trip.shape_id).sort((a, b) => +a.shape_pt_sequence - +b.shape_pt_sequence).map(x => [+x.shape_pt_lon, +x.shape_pt_lat]); if (sh.length > 1) { line.length = 0; line.push(...sh); } }
+      res.rows = keep(all.filter(r => role.has(r.stop_id)));
+      res.colorOf = new Map([...role].map(([k, v]) => [k, ROLE_COLOR[v]])); res.seqOf = seq; res.focus = focus; res.line = line;
+      res.legend = [[ROLE_COLOR.pickup, '乗る所'], [ROLE_COLOR.dropoff, '降りる所'], [ROLE_COLOR.both, '乗り降り両方']].filter(([c]) => [...res.colorOf.values()].includes(c));
+      return res;
+    }
+    const v = S.stopView;
+    if (v === 'grouped') {
+      const groups = G.rows(S.feed, 'location_groups.txt').map(g => g.location_group_id);
+      const colorOf = new Map(); for (const m of lgs) if (!colorOf.has(m.stop_id)) { const k = groups.indexOf(m.location_group_id); colorOf.set(m.stop_id, GROUP_COLORS[(k < 0 ? 0 : k) % GROUP_COLORS.length]); }
+      res.rows = keep(all.filter(r => colorOf.has(r.stop_id))); res.colorOf = colorOf;
+      res.legend = G.rows(S.feed, 'location_groups.txt').slice(0, 10).map((g, k) => [GROUP_COLORS[k % GROUP_COLORS.length], g.location_group_name || g.location_group_id]);
+      if (groups.length > 10) res.legend.push(['#bbb', `ほか ${groups.length - 10} グループ`]);
+    } else if (v === 'ungrouped') {
+      const inAny = new Set(lgs.map(m => m.stop_id)); res.rows = keep(all.filter(r => !inAny.has(r.stop_id)));
+    } else if (v.startsWith('g:')) {
+      const mem = memberSet(v.slice(2)); res.rows = keep(all.filter(r => mem.has(r.stop_id)));
+    }
+    return res;
+  }
+  let lastView = null;
+  function stopFeatures() {
+    const v = stopView(); lastView = v;
+    const feats = M.setStops(v.rows, memberSet(S.group), S.stop, S.stopIssues, { colorOf: v.colorOf, seqOf: v.seqOf });
+    M.setTripLine(v.line); M.setLegendExtra(v.legend);
+    return feats;
+  }
+  // 地図の右上: 地図に出す停留所と便を選ぶ
+  const viewStops = el('select', { id: 'viewStops', title: '地図に出す停留所' });
+  const viewTrip = el('select', { id: 'viewTrip', title: '地図に出す便（乗る所・降りる所と経路を示す）' });
+  viewStops.hidden = viewTrip.hidden = true; // データを開くまで出さない
+  M.top.prepend(viewStops, viewTrip);
+  function renderMapView() {
+    if (!S.feed) return;
+    const groups = G.rows(S.feed, 'location_groups.txt'), lgs = G.rows(S.feed, 'location_group_stops.txt'), all = G.rows(S.feed, 'stops.txt');
+    const inAny = new Set(lgs.map(m => m.stop_id));
+    if (S.stopView.startsWith('g:') && !groups.some(g => g.location_group_id === S.stopView.slice(2))) S.stopView = 'all';
+    if (S.stopView !== 'all' && S.stopView !== 'grouped' && S.stopView !== 'ungrouped' && !S.stopView.startsWith('g:')) S.stopView = 'all';
+    viewStops.hidden = viewTrip.hidden = false;
+    viewStops.innerHTML = '';
+    viewStops.append(el('option', { value: 'all' }, `停留所: すべて（${all.length}）`));
+    if (groups.length) {
+      viewStops.append(el('option', { value: 'grouped' }, `全グループ（色分け・${all.filter(r => inAny.has(r.stop_id)).length}）`));
+      viewStops.append(el('option', { value: 'ungrouped' }, `グループに入っていない（${all.filter(r => !inAny.has(r.stop_id)).length}）`));
+      const og = el('optgroup', { label: 'グループごと' });
+      for (const g of groups) og.append(el('option', { value: 'g:' + g.location_group_id }, `グループ ${g.location_group_name || g.location_group_id}（${memberSet(g.location_group_id).size}）`));
+      viewStops.append(og);
+    }
+    viewStops.value = S.stopView;
+    // 便: 路線ごとにまとめる（多いときは路線ごとに 300 本まで）
+    const trips = G.rows(S.feed, 'trips.txt');
+    if (S.viewTrip && !trips.some(t => t.trip_id === S.viewTrip)) S.viewTrip = '';
+    viewTrip.innerHTML = ''; viewTrip.append(el('option', { value: '' }, `便: 選ばない（${trips.length} 本）`));
+    const routes = G.rows(S.feed, 'routes.txt');
+    const byRoute = new Map(); for (const t of trips) { if (!byRoute.has(t.route_id)) byRoute.set(t.route_id, []); byRoute.get(t.route_id).push(t); }
+    const st = G.rows(S.feed, 'stop_times.txt'); const first = new Map(); for (const r of st) { const k = r.trip_id; const v = r.departure_time || r.start_pickup_drop_off_window || ''; if (v && (!first.has(k) || v < first.get(k))) first.set(k, v); }
+    for (const [rid, ts] of byRoute) {
+      const r = routes.find(x => x.route_id === rid) || {};
+      const og = el('optgroup', { label: `${r.route_short_name || r.route_long_name || rid}` });
+      for (const t of ts.slice(0, 300)) og.append(el('option', { value: t.trip_id }, `便 ${t.trip_id}${t.trip_headsign ? ' ' + t.trip_headsign : ''}${first.get(t.trip_id) ? ' ' + first.get(t.trip_id).slice(0, 5) + '〜' : ''}`));
+      if (ts.length > 300) og.append(el('option', { disabled: '' }, `ほか ${ts.length - 300} 本（便を追加のタブで選べます）`));
+      viewTrip.append(og);
+    }
+    viewTrip.value = S.viewTrip;
+    viewStops.disabled = !!S.viewTrip; viewStops.title = S.viewTrip ? '便を選んでいる間は、その便の停留所を出します' : '地図に出す停留所';
+  }
+  viewStops.addEventListener('change', () => {
+    S.stopView = viewStops.value;
+    if (S.stopView.startsWith('g:')) { S.group = S.stopView.slice(2); renderZones(); }
+    refreshMap(false);
+    if (lastView && lastView.rows.length && S.stopView !== 'all') M.fitTo(stopFeatures());
+  });
+  viewTrip.addEventListener('change', () => {
+    S.viewTrip = viewTrip.value; viewStops.disabled = !!S.viewTrip;
+    refreshMap(false);
+    if (S.viewTrip) { const locs = ((S.feed.locations && S.feed.locations.features) || []).filter(f => lastView.focus && lastView.focus.has(String(f.id))); const feats = stopFeatures().concat(locs); if (feats.length) M.fitTo(feats); }
+  });
   // 停留所ごとの検証結果（stops.txt の行、location_group_stops.txt の行、stop_times.txt の stop_id のある行）
   function collectStopIssues() {
     const m = new Map(), list = new Map();
@@ -107,7 +205,7 @@
     if (!S.feed) return;
     M.map.resize();
     const feats = stopFeatures();
-    M.setLocations(S.feed.locations, S.loc);
+    M.setLocations(S.feed.locations, S.loc, lastView && lastView.focus && lastView.focus.size ? lastView.focus : null);
     // 読み込んだとき: 区域ポリゴンがあれば区域に寄せる（停留所の範囲が広いと小さな区域が見えなくなるため）。なければ停留所の範囲
     const locs = (S.feed.locations && S.feed.locations.features) || [];
     if (fit) M.fitTo(locs.length ? locs : feats);
@@ -158,6 +256,7 @@
     }
     S.feed = feed; S.name = name; S.dirty = false; S.hlRow = null; S.page = 0; S.filter = '';
     closePopups(); // 前のデータの吹き出しを残さない
+    S.stopView = 'all'; S.viewTrip = '';
     S.original = original || structuredClone(feed);
     const gi = document.getElementById('graphInfo'); if (gi) gi.innerHTML = '';
     S.diffFile = '';
@@ -189,6 +288,8 @@
   const odptSel = $('#odptSelect');
   { const g1 = el('optgroup', { label: 'ODPT（国内のデマンド交通）' }); for (const d of window.ODPT_FLEX_DATASETS) g1.append(el('option', { value: d.url }, d.title)); odptSel.append(g1); }
   { const g2 = el('optgroup', { label: '海外の例（OpenTripPlanner の試験データ・区域ポリゴンあり）' }); for (const d of window.SAMPLE_FLEX_DATASETS || []) g2.append(el('option', { value: d.url }, d.title)); odptSel.append(g2); }
+  // 一覧から選んだらすぐ開く（「開き直す」は同じデータをもう一度開くとき）
+  odptSel.addEventListener('change', () => { if (odptSel.value) $('#odptLoad').click(); });
   $('#odptLoad').addEventListener('click', async () => {
     const url = odptSel.value; if (!url) return;
     const sample = (window.SAMPLE_FLEX_DATASETS || []).find(x => x.url === url);
@@ -207,7 +308,7 @@
       }
       $('#feedSummary').textContent += sample ? `\n出典: ${d.credit}\n${d.page}` : `\n出典: 公共交通オープンデータセンター ${d.page}（CC BY 4.0）`;
     } catch (err) { alert((sample ? 'GitHub' : 'ODPT') + ' から取得できませんでした: ' + err.message); }
-    $('#odptLoad').disabled = false; $('#odptLoad').textContent = '読み込む';
+    $('#odptLoad').disabled = false; $('#odptLoad').textContent = '開き直す';
   });
   $('#btnNew').addEventListener('click', () => $('#newDialog').showModal());
   $('#newForm').querySelector('[name=bookingType]').addEventListener('change', e => { const v = e.target.value; $('#newForm .bt1').style.display = v === '1' ? '' : 'none'; $('#newForm .bt2').style.display = v === '2' ? '' : 'none'; });
@@ -660,6 +761,7 @@
   }
   function renderZones() {
     if (!S.feed) return;
+    renderMapView();
     const gs = $('#groupSelect'); gs.innerHTML = '';
     const groups = G.rows(S.feed, 'location_groups.txt');
     for (const g of groups) gs.append(el('option', { value: g.location_group_id }, `${g.location_group_id}: ${g.location_group_name || '(名前なし)'}`));
@@ -690,7 +792,7 @@
     }
     renderStopForm();
   }
-  $('#groupSelect').addEventListener('change', e => { S.group = e.target.value; renderZones(); refreshMap(false); });
+  $('#groupSelect').addEventListener('change', e => { S.group = e.target.value; if (S.stopView.startsWith('g:')) S.stopView = 'g:' + S.group; renderZones(); refreshMap(false); });
   // グループ名は打つたびに反映する（選択欄の表示もその場で直す。入力欄から出たら全体を描き直す）
   $('#groupName').addEventListener('input', e => {
     const g = G.rows(S.feed, 'location_groups.txt').find(x => x.location_group_id === S.group); if (!g) return;
@@ -719,7 +821,7 @@
   $('#btnLocDraw').addEventListener('click', () => { if (!S.feed) return; toggleMode('draw'); });
   $('#btnLocDel').addEventListener('click', () => { if (S.feed && S.feed.locations) deleteLocation(S.loc); });
   $('#btnStopAdd').addEventListener('click', () => { if (!S.feed) return; toggleMode('addStop'); if (M.getMode() === 'addStop') { S.stop = null; if (stopPopup) { stopPopup.remove(); stopPopup = null; } refreshMap(false); } renderStopForm(); });
-  $('#map').addEventListener('modechange', () => renderStopForm());
+  $('#map').addEventListener('modechange', () => { renderStopForm(); if (S.feed && (S.stopView !== 'all' || S.viewTrip)) refreshMap(false); });
   $('#btnStopMove').addEventListener('click', () => { if (!S.feed) return; toggleMode('moveStop'); });
   $('#btnStopDel').addEventListener('click', () => { if (S.stop) deleteStop(S.stop); });
   // 停留所を消す。参照している行（グループの対応、便の行、乗継、構内経路、運賃エリア、親駅）も一緒に消す
@@ -954,6 +1056,7 @@
   // ---------- 便を追加 ----------
   function renderTrips() {
     if (!S.feed) return;
+    renderMapView();
     const f = $('#tripForm'); f.innerHTML = '';
     const sel = (opts, val) => { const s = el('select'); for (const [v, l] of opts) s.append(el('option', { value: v }, l)); if (val != null) s.value = val; return s; };
     const routes = G.rows(S.feed, 'routes.txt').map(r => [r.route_id, `${r.route_id}: ${r.route_long_name || r.route_short_name}`]);
@@ -1114,11 +1217,22 @@
   function reqTitle(fd) { return !fd ? '' : fd.required === true ? '必須' : fd.required === 'cond' ? '条件付きで必須' : ''; }
   // グループの表示名: 名前があれば名前、なければ「ID 1」のように
   function groupLabel(gid) { const g = G.rows(S.feed, 'location_groups.txt').find(x => x.location_group_id === gid); return g && g.location_group_name ? g.location_group_name : 'ID ' + gid; }
-  function nextId(existing, prefix) { const set = new Set(existing); let n = 1; while (set.has(prefix + n)) n++; return prefix + n; }
+  // 新しい ID。今のデータだけでなく、読み込んだときのデータにあった ID も使わない（消した停留所の ID を別の停留所に使い回すと、
+  // 変更の一覧で「更新」に見え、ID で見分ける利用者のアプリも取り違える）。停留所・グループ・区域の ID は互いにも重ねない
+  function usedIds() {
+    const set = new Set();
+    for (const f of [S.feed, S.original]) {
+      if (!f) continue;
+      for (const [n, c] of [['stops.txt', 'stop_id'], ['location_groups.txt', 'location_group_id'], ['trips.txt', 'trip_id']]) for (const r of G.rows(f, n)) if (r[c]) set.add(String(r[c]));
+      for (const x of (f.locations && f.locations.features) || []) if (x.id != null) set.add(String(x.id));
+    }
+    return set;
+  }
+  function nextId(existing, prefix) { const set = usedIds(); for (const x of existing) set.add(String(x)); let n = 1; while (set.has(prefix + n)) n++; return prefix + n; }
   function ccw(ring) { let a = 0; for (let i = 0; i < ring.length - 1; i++) a += ring[i][0] * ring[i + 1][1] - ring[i + 1][0] * ring[i][1]; return a < 0 ? ring.slice().reverse() : ring; }
 
   // 開発者ツールから触れるように（デバッグ用）
-  window.FlexApp = { S, M, refreshMap, runValidate, selectStop, loadFeed, renderZones, renderTrips, renderEditor, renderChanges, setTab, renderGraph, openRow };
+  window.FlexApp = { S, M, refreshMap, runValidate, selectStop, loadFeed, renderZones, renderTrips, renderEditor, renderChanges, setTab, renderGraph, openRow, mapView: () => lastView };
 
   // ---------- 起動: 前回の続き ----------
   (async () => {

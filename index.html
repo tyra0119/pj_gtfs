@@ -5,27 +5,44 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>GTFS-Flex 作成・検証ツール</title>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/maplibre-gl/4.7.1/maplibre-gl.min.css">
-<link rel="stylesheet" href="css/style.css?v=1b116e1-mv8wwric">
+<link rel="stylesheet" href="css/style.css?v=aa13389-mv8xnz13">
 </head>
 <body>
 <header class="topbar">
   <div class="brand">GTFS-Flex 作成・検証ツール</div>
+  <!-- 作業の順に 3 つのまとまり: ① データを開く（3 通り）② 確かめる ③ 書き出す -->
   <div class="actions">
-    <label class="btn">開く (zip)<input type="file" id="fileInput" accept=".zip" hidden></label>
-    <div class="odpt">
-      <select id="odptSelect" title="ODPT の GTFS-Flex と、海外の例（OpenTripPlanner の試験データ）"><option value="">ODPT・海外の例から選ぶ…</option></select>
-      <button id="odptLoad" class="btn">読み込む</button>
+    <div class="grp">
+      <span class="grp-label">① データを開く</span>
+      <div class="grp-body">
+        <label class="btn" title="手元の GTFS / GTFS-Flex の zip ファイルを開く">📂 パソコンの zip を開く<input type="file" id="fileInput" accept=".zip" hidden></label>
+        <span class="or">または</span>
+        <div class="odpt">
+          <select id="odptSelect" title="選ぶとすぐ開きます。ODPT（公共交通オープンデータセンター）の国内のデマンド交通と、海外の例（OpenTripPlanner の試験データ）"><option value="">🌐 公開データから選ぶ…</option></select>
+          <button id="odptLoad" class="btn small" title="選んでいる公開データを、元の状態から開き直す">開き直す</button>
+        </div>
+        <span class="or">または</span>
+        <button id="btnNew" class="btn" title="事業者・路線・区域・時間帯・予約を入れて、まっさらから作る">＋ 新しく作る</button>
+      </div>
     </div>
-    <button id="btnNew" class="btn">新規作成</button>
-    <button id="btnValidate" class="btn primary">検証する</button>
-    <select id="exportVersion" title="書き出す GTFS-Flex の版。ふつうは正式版">
-      <option value="canonical">正式版（2024-03〜）</option>
-      <option value="draft2022">v2 後期ドラフト（2022〜23）</option>
-      <option value="draft2020">v2 初期ドラフト（2020）</option>
-      <option value="noflex">Flex を除く（Google 乗換案内向け）</option>
-    </select>
-    <button id="btnExport" class="btn">zip に書き出す</button>
-    <span id="saveStatus" class="status">自動保存: まだ</span>
+    <div class="grp">
+      <span class="grp-label">② 確かめる</span>
+      <div class="grp-body"><button id="btnValidate" class="btn primary" title="今のデータを仕様に照らして確かめる（編集すると自動でも確かめます）">✔ 検証する</button></div>
+    </div>
+    <div class="grp">
+      <span class="grp-label">③ 書き出す</span>
+      <div class="grp-body">
+        <label class="small muted" for="exportVersion">形式</label>
+        <select id="exportVersion" title="書き出す GTFS-Flex の版。ODPT への提供はふつう正式版">
+          <option value="canonical">正式版（2024-03〜）</option>
+          <option value="draft2022">v2 後期ドラフト（2022〜23）</option>
+          <option value="draft2020">v2 初期ドラフト（2020）</option>
+          <option value="noflex">Flex を除く（Google 乗換案内向け）</option>
+        </select>
+        <button id="btnExport" class="btn" title="選んだ形式で zip ファイルに保存する">⬇ zip に書き出す</button>
+      </div>
+    </div>
+    <span id="saveStatus" class="status" title="編集した内容はこのブラウザに自動で保存されます">自動保存: まだ</span>
   </div>
 </header>
 
@@ -42,7 +59,7 @@
     <div id="backBar" class="backbar" hidden><button id="btnBack" class="btn small">← 検証結果に戻る</button><span id="backInfo" class="muted small"></span></div>
 
     <section id="tab-validate" class="tab active">
-      <div id="feedSummary" class="summary">データが読み込まれていません。上の「開く」「ODPT のデータから選ぶ」「新規作成」から始めてください。</div>
+      <div id="feedSummary" class="summary">データが読み込まれていません。上の「① データを開く」で、パソコンの zip を開くか、公開データから選ぶか、新しく作ってください。</div>
       <details id="stepsBox" class="steps" open><summary>作成の手順 <span id="stepsCount"></span></summary><ol id="steps"></ol></details>
       <div class="vbar">
         <span class="count err" id="cntErr">エラー 0</span>
@@ -191,15 +208,15 @@
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/maplibre-gl/4.7.1/maplibre-gl.min.js"></script>
-<script src="js/spec.js?v=1b116e1-mv8wwric"></script>
-<script src="js/gtfs.js?v=1b116e1-mv8wwric"></script>
-<script src="js/versions.js?v=1b116e1-mv8wwric"></script>
-<script src="js/validate.js?v=1b116e1-mv8wwric"></script>
-<script src="js/map.js?v=1b116e1-mv8wwric"></script>
-<script src="js/odpt.js?v=1b116e1-mv8wwric"></script>
-<script src="js/store.js?v=1b116e1-mv8wwric"></script>
-<script src="js/diff.js?v=1b116e1-mv8wwric"></script>
-<script src="js/graph.js?v=1b116e1-mv8wwric"></script>
-<script src="js/app.js?v=1b116e1-mv8wwric"></script>
+<script src="js/spec.js?v=aa13389-mv8xnz13"></script>
+<script src="js/gtfs.js?v=aa13389-mv8xnz13"></script>
+<script src="js/versions.js?v=aa13389-mv8xnz13"></script>
+<script src="js/validate.js?v=aa13389-mv8xnz13"></script>
+<script src="js/map.js?v=aa13389-mv8xnz13"></script>
+<script src="js/odpt.js?v=aa13389-mv8xnz13"></script>
+<script src="js/store.js?v=aa13389-mv8xnz13"></script>
+<script src="js/diff.js?v=aa13389-mv8xnz13"></script>
+<script src="js/graph.js?v=aa13389-mv8xnz13"></script>
+<script src="js/app.js?v=aa13389-mv8xnz13"></script>
 </body>
 </html>

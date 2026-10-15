@@ -211,13 +211,28 @@
     },
     {
       id: 'calendar', label: '運行日', run(c) {
-        const { R, err, warn } = c;
+        const { R, err, warn, info } = c;
         const days = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
+        // 今日以降も運行日がある（ほかの行の期間が続く、または追加の運行日がある）なら、過ぎた行は履歴にすぎない
+        const goesOn = R('calendar.txt').some(x => /^\d{8}$/.test(x.end_date) && x.end_date >= c.today) || R('calendar_dates.txt').some(x => x.exception_type === '1' && x.date >= c.today);
         R('calendar.txt').forEach((r, i) => {
           if (days.every(d => r[d] === '0') && !R('calendar_dates.txt').some(x => x.service_id === r.service_id && x.exception_type === '1')) warn('calendar.txt', i, 'monday', `service_id "${r.service_id}" は運行する曜日がない`, 'no_days');
           if (r.start_date && r.end_date && r.start_date > r.end_date) err('calendar.txt', i, 'end_date', '終了日が開始日より前', 'date_order');
-          if (r.end_date && /^\d{8}$/.test(r.end_date) && r.end_date < c.today) warn('calendar.txt', i, 'end_date', `end_date ${r.end_date} はすでに過ぎている`, 'expired');
+          if (r.end_date && /^\d{8}$/.test(r.end_date) && r.end_date < c.today) {
+            if (goesOn) info('calendar.txt', i, 'end_date', `service_id "${r.service_id}" の end_date ${r.end_date} は過ぎているが、ほかの運行日が今日以降も続くので問題ない`, 'expired_past');
+            else warn('calendar.txt', i, 'end_date', `end_date ${r.end_date} はすでに過ぎている（今日以降の運行日がない）`, 'expired');
+          }
         });
+        // 運行日の表の期間が feed_info の有効期間（データが確かな期間）をはみ出していないか
+        const fi = R('feed_info.txt')[0];
+        if (fi && /^\d{8}$/.test(fi.feed_start_date || '') && /^\d{8}$/.test(fi.feed_end_date || '')) {
+          R('calendar.txt').forEach((r, i) => {
+            if (!/^\d{8}$/.test(r.start_date || '') || !/^\d{8}$/.test(r.end_date || '')) return;
+            const over = r.end_date > fi.feed_end_date, under = r.start_date < fi.feed_start_date;
+            if (over || under) warn('calendar.txt', i, over ? 'end_date' : 'start_date', `service_id "${r.service_id}" の期間 ${r.start_date}〜${r.end_date} が feed_info の有効期間 ${fi.feed_start_date}〜${fi.feed_end_date} をはみ出す（はみ出した日は確かでないと扱われる）`, 'feed_range',
+              over ? { label: `feed_end_date を ${r.end_date} にする`, safe: false, apply: () => { const m = R('calendar.txt').reduce((a, x) => (x.end_date > a ? x.end_date : a), fi.feed_end_date); fi.feed_end_date = m; } } : null);
+          });
+        }
         R('calendar_dates.txt').forEach((r, i) => {
           if (r.exception_type === '2' && !R('calendar.txt').some(x => x.service_id === r.service_id)) warn('calendar_dates.txt', i, 'service_id', `calendar.txt にない service_id "${r.service_id}" を運休にしている`, 'ref');
           const cal = R('calendar.txt').find(x => x.service_id === r.service_id);
@@ -340,8 +355,9 @@
           if (hasWin && dt === '3') err(f, i, 'drop_off_type', '乗降時間帯のある行では drop_off_type=3 は使えない', 'window_dropoff3', c.setVal(r, 'drop_off_type', '2', 'drop_off_type を 2 にする', true));
           if (pt === '2' && !r.pickup_booking_rule_id && hasWin) warn(f, i, 'pickup_booking_rule_id', 'pickup_type=2（連絡して乗車）なのに pickup_booking_rule_id がない。予約方法が案内されない', 'no_booking_rule', onlyRule ? c.setVal(r, 'pickup_booking_rule_id', onlyRule, `予約ルール "${onlyRule}" を入れる`, true) : null);
           if (dt === '2' && !r.drop_off_booking_rule_id && hasWin) warn(f, i, 'drop_off_booking_rule_id', 'drop_off_type=2（連絡して降車）なのに drop_off_booking_rule_id がない', 'no_booking_rule', onlyRule ? c.setVal(r, 'drop_off_booking_rule_id', onlyRule, `予約ルール "${onlyRule}" を入れる`, true) : null);
-          if (pt === '1' && r.pickup_booking_rule_id) warn(f, i, 'pickup_booking_rule_id', '乗車不可（pickup_type=1）の行に pickup_booking_rule_id がある', 'rule_unused', c.setVal(r, 'pickup_booking_rule_id', '', 'pickup_booking_rule_id を空にする', true));
-          if (dt === '1' && r.drop_off_booking_rule_id) warn(f, i, 'drop_off_booking_rule_id', '降車不可（drop_off_type=1）の行に drop_off_booking_rule_id がある', 'rule_unused', c.setVal(r, 'drop_off_booking_rule_id', '', 'drop_off_booking_rule_id を空にする', true));
+          // 仕様では禁止されておらず害もない（ODPT のデータはほぼすべてこの書き方）ので情報にとどめる
+          if (pt === '1' && r.pickup_booking_rule_id) info(f, i, 'pickup_booking_rule_id', '乗車不可（pickup_type=1）の行に pickup_booking_rule_id がある（使われないだけで害はない）', 'rule_unused', c.setVal(r, 'pickup_booking_rule_id', '', 'pickup_booking_rule_id を空にする', true));
+          if (dt === '1' && r.drop_off_booking_rule_id) info(f, i, 'drop_off_booking_rule_id', '降車不可（drop_off_type=1）の行に drop_off_booking_rule_id がある（使われないだけで害はない）', 'rule_unused', c.setVal(r, 'drop_off_booking_rule_id', '', 'drop_off_booking_rule_id を空にする', true));
           if (!byTrip.has(r.trip_id)) byTrip.set(r.trip_id, []);
           byTrip.get(r.trip_id).push({ r, i });
         });

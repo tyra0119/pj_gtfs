@@ -41,8 +41,11 @@
 
     map.on('load', () => {
       map.addSource('locations', { type: 'geojson', data: empty() });
-      map.addLayer({ id: 'loc-fill', type: 'fill', source: 'locations', paint: { 'fill-color': ['case', ['boolean', ['get', '_selected'], false], '#f0a030', '#7c4dff'], 'fill-opacity': 0.22 } });
-      map.addLayer({ id: 'loc-line', type: 'line', source: 'locations', paint: { 'line-color': ['case', ['boolean', ['get', '_selected'], false], '#d07000', '#5a2fd0'], 'line-width': 3 } });
+      map.addLayer({ id: 'loc-fill', type: 'fill', source: 'locations', paint: { 'fill-color': ['case', ['boolean', ['get', '_selected'], false], '#f0a030', '#7c4dff'], 'fill-opacity': ['case', ['boolean', ['get', '_dim'], false], 0.05, 0.22] } });
+      map.addLayer({ id: 'loc-line', type: 'line', source: 'locations', paint: { 'line-color': ['case', ['boolean', ['get', '_selected'], false], '#d07000', '#5a2fd0'], 'line-width': 3, 'line-opacity': ['case', ['boolean', ['get', '_dim'], false], 0.25, 1] } });
+      // 選んだ便の経路（停留所を順に結ぶ線。shapes.txt があればその形）
+      map.addSource('trip-line', { type: 'geojson', data: empty() });
+      map.addLayer({ id: 'trip-line', type: 'line', source: 'trip-line', layout: { 'line-join': 'round', 'line-cap': 'round' }, paint: { 'line-color': '#00897b', 'line-width': 4, 'line-opacity': 0.8 } });
       map.addLayer({ id: 'loc-label', type: 'symbol', source: 'locations', layout: { 'text-field': ['coalesce', ['get', 'stop_name'], ['get', '_id']], 'text-size': 13, 'text-font': ['NotoSansCJKjp-Regular'] }, paint: { 'text-color': '#1a3f8a', 'text-halo-color': '#fff', 'text-halo-width': 1.5 } });
       map.addSource('draft', { type: 'geojson', data: empty() });
       map.addLayer({ id: 'draft-fill', type: 'fill', source: 'draft', paint: { 'fill-color': '#f0a030', 'fill-opacity': 0.15 } });
@@ -53,10 +56,12 @@
       map.addSource('stops', { type: 'geojson', data: empty() });
       map.addLayer({ id: 'stops', type: 'circle', source: 'stops', paint: {
         'circle-radius': ['interpolate', ['linear'], ['zoom'], 10, ['case', ['boolean', ['get', '_selected'], false], 8, 4], 14, ['case', ['boolean', ['get', '_selected'], false], 11, 7], 17, ['case', ['boolean', ['get', '_selected'], false], 14, 10]],
-        'circle-color': ['case', ['boolean', ['get', '_selected'], false], '#ff9800', ['boolean', ['get', '_member'], false], '#e53935', '#1e88e5'],
+        'circle-color': ['case', ['boolean', ['get', '_selected'], false], '#ff9800', ['has', '_color'], ['get', '_color'], ['boolean', ['get', '_member'], false], '#e53935', '#1e88e5'],
         'circle-stroke-color': ['case', ['boolean', ['get', '_selected'], false], '#b35c00', ['==', ['get', '_issue'], 'error'], '#b71c1c', ['==', ['get', '_issue'], 'warn'], '#d78a00', '#fff'],
         'circle-stroke-width': ['case', ['boolean', ['get', '_selected'], false], 3, ['has', '_issue'], 3, 2] } });
       map.addLayer({ id: 'stop-issue', type: 'symbol', source: 'stops', filter: ['has', '_issue'], layout: { 'text-field': '!', 'text-size': 14, 'text-font': ['NotoSansCJKjp-Regular'], 'text-offset': [0, -1.3], 'text-allow-overlap': true, 'text-ignore-placement': true }, paint: { 'text-color': ['case', ['==', ['get', '_issue'], 'error'], '#d33', '#d78a00'], 'text-halo-color': '#fff', 'text-halo-width': 1.5 } });
+      // 便を選んだときの、停留所の順番（1, 2, …）
+      map.addLayer({ id: 'stop-seq', type: 'symbol', source: 'stops', filter: ['has', '_seq'], layout: { 'text-field': ['get', '_seq'], 'text-size': 11, 'text-font': ['NotoSansCJKjp-Regular'], 'text-allow-overlap': true, 'text-ignore-placement': true }, paint: { 'text-color': '#fff' } });
       map.addLayer({ id: 'stop-label', type: 'symbol', source: 'stops', minzoom: 13, layout: { 'text-field': ['get', 'stop_name'], 'text-size': 12, 'text-offset': [0, 1.0], 'text-anchor': 'top', 'text-font': ['NotoSansCJKjp-Regular'], 'text-optional': true }, paint: { 'text-color': '#1a1a1a', 'text-halo-color': '#fff', 'text-halo-width': 1.6 } });
       // マウスを乗せたら名前を出す（拡大しなくても分かるように）
       const tip = new maplibregl.Popup({ closeButton: false, closeOnClick: false, offset: 10, className: 'stop-tip' });
@@ -153,22 +158,27 @@
 
     // ---- データの反映 ----
     // issues: Map(stop_id -> 'error' | 'warn')。縁取りと「!」で示す
-    function setStops(rows, memberIds, selectedId, issues) {
+    // o.colorOf: 停留所ごとの色（グループごとの色分け・便の乗車／降車）、o.seqOf: 便の中の順番
+    function setStops(rows, memberIds, selectedId, issues, o) {
+      o = o || {};
       state.memberIds = memberIds || new Set(); state.selectedStop = selectedId || null;
       const feats = [];
       for (const r of rows) {
         const lat = parseFloat(r.stop_lat), lon = parseFloat(r.stop_lon);
         if (isNaN(lat) || isNaN(lon)) continue;
         const props = { stop_id: r.stop_id, stop_name: r.stop_name || '', _member: state.memberIds.has(r.stop_id), _selected: r.stop_id === state.selectedStop };
+        if (o.colorOf && o.colorOf.has(r.stop_id)) props._color = o.colorOf.get(r.stop_id);
+        if (o.seqOf && o.seqOf.has(r.stop_id)) props._seq = String(o.seqOf.get(r.stop_id));
         if (issues && issues.has(r.stop_id)) props._issue = issues.get(r.stop_id);
         feats.push({ type: 'Feature', properties: props, geometry: { type: 'Point', coordinates: [lon, lat] } });
       }
       const src = map.getSource('stops'); if (src) src.setData({ type: 'FeatureCollection', features: feats });
       return feats;
     }
-    function setLocations(fc, selectedIndex) {
+    // focus: 強調する区域の id の集合（選んだ便が使う区域）。ほかは薄くする。null なら全部ふつう
+    function setLocations(fc, selectedIndex, focus) {
       state.selectedFeature = selectedIndex == null ? -1 : selectedIndex;
-      const feats = ((fc && fc.features) || []).map((f, i) => ({ type: 'Feature', properties: Object.assign({}, f.properties || {}, { _id: f.id, _index: i, _selected: i === state.selectedFeature }), geometry: f.geometry }));
+      const feats = ((fc && fc.features) || []).map((f, i) => ({ type: 'Feature', properties: Object.assign({}, f.properties || {}, { _id: f.id, _index: i, _selected: i === state.selectedFeature, _dim: !!(focus && !focus.has(String(f.id))) }), geometry: f.geometry }));
       const src = map.getSource('locations'); if (src) src.setData({ type: 'FeatureCollection', features: feats });
       renderVerts(fc);
     }
@@ -198,7 +208,7 @@
     const top = document.createElement('div');
     top.className = 'map-top';
     const sel = document.createElement('select');
-    sel.title = '背景の地図';
+    sel.title = '背景の地図'; sel.id = 'baseMap';
     for (const [k, b] of Object.entries(BASEMAPS)) { const o = document.createElement('option'); o.value = k; o.textContent = b.label; sel.appendChild(o); }
     const op = document.createElement('input'); op.type = 'range'; op.min = '20'; op.max = '100'; op.value = '80'; op.title = '背景の濃さ';
     top.append(sel, op);
@@ -228,7 +238,12 @@
       navigator.geolocation.getCurrentPosition(p => map.easeTo({ center: [p.coords.longitude, p.coords.latitude], zoom: Math.max(map.getZoom(), 14) }), () => { if (H.onLocateFallback) H.onLocateFallback(); });
     };
 
-    return { map, state, setMode, setStops, setLocations, fitTo, finishDraw, getMode: () => state.mode };
+    function setTripLine(coords) { const src = map.getSource('trip-line'); if (src) src.setData(coords && coords.length > 1 ? { type: 'FeatureCollection', features: [{ type: 'Feature', properties: {}, geometry: { type: 'LineString', coordinates: coords } }] } : empty()); }
+    // 凡例の下に足す説明（グループの色、選んだ便の乗車・降車の色）
+    const legendExtra = document.createElement('div'); legendExtra.className = 'legend-extra'; legend.appendChild(legendExtra);
+    function setLegendExtra(items) { legendExtra.innerHTML = ''; for (const [color, text] of items || []) { const s = document.createElement('span'); const i = document.createElement('i'); i.style.background = color; s.append(i, document.createTextNode(text)); legendExtra.appendChild(s); } legendExtra.style.display = items && items.length ? '' : 'none'; }
+    setLegendExtra(null);
+    return { map, state, setMode, setStops, setLocations, setTripLine, setLegendExtra, fitTo, finishDraw, getMode: () => state.mode, top };
   }
 
   window.FlexMap = { create };
