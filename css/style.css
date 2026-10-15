@@ -176,3 +176,6 @@ table.grid th .coldel:hover { color: var(--err); }
 .map-legend i { display: inline-block; width: 11px; height: 11px; border-radius: 50%; border: 2px solid #fff; box-shadow: 0 0 0 1px rgba(0,0,0,.25); }
 .stop-tip .maplibregl-popup-content { padding: 4px 8px; font-size: 12px; pointer-events: none; }
 .map-mode { top: 50px; }
+.groups { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; font-size: 12px; margin-top: 4px; }
+.groups .chip { display: inline-flex; align-items: center; gap: 2px; background: #fde2e2; color: #8a1c1c; border-radius: 10px; padding: 1px 6px 1px 8px; }
+.groups .chip button { border: 0; background: transparent; color: #a33; cursor: pointer; font-size: 11px; padding: 0 2px; }

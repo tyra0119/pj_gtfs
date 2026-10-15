@@ -535,6 +535,16 @@
 
   // ---------- 区域・停留所 ----------
   function memberSet(gid) { return new Set(G.rows(S.feed, 'location_group_stops.txt').filter(r => r.location_group_id === gid).map(r => r.stop_id)); }
+  function groupsOf(sid) { return [...new Set(G.rows(S.feed, 'location_group_stops.txt').filter(r => r.stop_id === sid).map(r => r.location_group_id))]; }
+  // 「所属グループ: 地区1 ✕, 地区3 ✕」と、選択中のグループへの出し入れボタン
+  function groupMembershipUI(sid, after) {
+    const gs = groupsOf(sid);
+    const wrap = el('div', { class: 'groups' }, el('span', { class: 'muted small' }, '所属グループ: '));
+    if (!gs.length) wrap.append(el('span', { class: 'small' }, 'なし'));
+    for (const g of gs) wrap.append(el('span', { class: 'chip', title: `location_group_id ${g}` }, groupLabel(g), el('button', { title: `グループ「${groupLabel(g)}」から外す`, onclick: e => { e.stopPropagation(); toggleMember(g, sid); after(); } }, '✕')));
+    if (S.group && !gs.includes(S.group)) wrap.append(el('button', { class: 'btn small', title: `location_group_id ${S.group}`, onclick: e => { e.stopPropagation(); toggleMember(S.group, sid); after(); } }, `選択中のグループ「${groupLabel(S.group)}」に入れる`));
+    return wrap;
+  }
   function toggleMember(gid, sid) {
     const t = G.ensureTable(S.feed, 'location_group_stops.txt');
     const i = t.rows.findIndex(r => r.location_group_id === gid && r.stop_id === sid);
@@ -680,15 +690,14 @@
     if (!r || isNaN(+r.stop_lat) || isNaN(+r.stop_lon)) return;
     if (o.center) M.map.easeTo({ center: [+r.stop_lon, +r.stop_lat], zoom: Math.max(M.map.getZoom(), 15) });
     if (!o.popup) return;
-    const inG = S.group ? memberSet(S.group).has(r.stop_id) : null;
     const div = el('div', { class: 'stop-popup' },
       el('b', null, r.stop_name || '(名前なし)'),
       el('div', { class: 'muted small' }, `stop_id ${r.stop_id}${r.stop_code ? '　番号 ' + r.stop_code : ''}`),
       el('div', { class: 'muted small' }, `${r.stop_lat}, ${r.stop_lon}`),
+      groupMembershipUI(r.stop_id, () => selectStop(r.stop_id, { popup: true })),
       ...((S.stopIssueList && S.stopIssueList.get(r.stop_id)) || []).slice(0, 4).map(it => el('div', { class: 'popup-issue ' + it.level, onclick: () => { setTab('validate'); const li = [...$('#issueList').querySelectorAll('li')].find(x => x._issue === it); if (li) { li.classList.add('current'); li.scrollIntoView({ block: 'center' }); } } }, (it.level === 'error' ? '✖ ' : '△ ') + it.msg)),
       el('div', { class: 'row' },
         el('button', { class: 'btn small', onclick: () => { setTab('zones'); renderStopForm(); $('#stopForm').scrollIntoView({ block: 'center' }); } }, '編集'),
-        S.group ? el('button', { class: 'btn small', title: `location_group_id ${S.group}`, onclick: () => { toggleMember(S.group, r.stop_id); selectStop(r.stop_id, { popup: true }); } }, inG ? `グループ「${groupLabel(S.group)}」から外す` : `グループ「${groupLabel(S.group)}」に入れる`) : null,
         el('button', { class: 'btn small', onclick: () => { S.file = 'stops.txt'; S.mode = 'table'; S.filter = r.stop_id; S.page = 0; S.hlRow = null; $('#fileSelect').value = S.file; document.querySelectorAll('.modes button').forEach(x => x.classList.toggle('active', x.dataset.mode === 'table')); setTab('files'); renderEditor(); } }, '表で見る'),
         el('button', { class: 'btn small danger', onclick: () => deleteStop(r.stop_id) }, '消す')));
     stopPopup = new maplibregl.Popup({ offset: 12, maxWidth: '300px' }).setLngLat([+r.stop_lon, +r.stop_lat]).setDOMContent(div).addTo(M.map);
@@ -745,10 +754,7 @@
       box.append(el('label', null, ''), tog);
       if (S.stopFormAll) for (const c of rest) addField(c);
     }
-    if (S.group) {
-      const inG = memberSet(S.group).has(r.stop_id);
-      box.append(el('label', null, 'グループ'), el('button', { class: 'btn small', title: `location_group_id ${S.group}`, onclick: () => toggleMember(S.group, r.stop_id) }, inG ? `「${groupLabel(S.group)}」から外す` : `「${groupLabel(S.group)}」に入れる`));
-    }
+    box.append(el('label', null, 'グループ'), groupMembershipUI(r.stop_id, () => renderStopForm()));
   }
 
   // ---------- 便を追加 ----------
