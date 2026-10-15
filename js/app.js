@@ -105,9 +105,28 @@
   }
 
   // ---------- 変更・保存 ----------
-  const saver = STORE.autosaver(() => S.feed ? { feed: S.feed, original: S.original, name: S.name, savedAt: Date.now() } : null, (t, e) => {
+  const saver = STORE.autosaver(() => S.feed ? { feed: S.feed, original: S.original, name: S.name, key: S.key, savedAt: Date.now() } : null, (t, e) => {
     $('#saveStatus').textContent = e ? '自動保存に失敗: ' + e.message : '自動保存: ' + t.toLocaleTimeString('ja-JP');
+    if (!e && S.feed && S.key) stashCurrent();
   }, 3000);
+  // 今のデータを、そのデータの鍵でブラウザに残す（変更があるときだけ）。別のデータに切り替えても戻れる
+  async function stashCurrent() {
+    if (!S.feed || !S.key) return;
+    const d = window.FlexDiff.diff(S.original, S.feed).totals;
+    if (d.added + d.updated + d.deleted === 0) { try { await STORE.deleteFeed(S.key); } catch (e) { /* なければよい */ } return; }
+    try { await STORE.saveFeed(S.key, { feed: S.feed, original: S.original, name: S.name, key: S.key, savedAt: Date.now(), totals: d }); } catch (e) { console.warn('データごとの保存に失敗', e); }
+  }
+  // 別のデータを開く前に呼ぶ。保存した修正があれば「続きから」を聞く。戻り値: 使う保存データ or null
+  async function beforeOpen(key) {
+    await stashCurrent();
+    let saved = null;
+    try { saved = await STORE.loadFeed(key); } catch (e) { /* なければよい */ }
+    if (!saved || !saved.feed) return null;
+    const t = saved.totals || { added: 0, updated: 0, deleted: 0 };
+    const ok = confirm(`「${saved.name}」には前回の修正がブラウザに残っています（追加 ${t.added}・更新 ${t.updated}・削除 ${t.deleted}、${new Date(saved.savedAt).toLocaleString('ja-JP')}）。\n続きから開きますか？\n（キャンセル: 修正を捨てて元のデータを読み直す）`);
+    if (!ok) { try { await STORE.deleteFeed(key); } catch (e) { /* 消せなくてもよい */ } return null; }
+    return saved;
+  }
   let validateTimer = null;
   function changed() {
     S.dirty = true;
@@ -120,7 +139,8 @@
   window.addEventListener('beforeunload', () => { if (S.dirty) saver.flush(); });
 
   // ---------- 読み込み ----------
-  async function loadFeed(feed, name, original) {
+  async function loadFeed(feed, name, original, key) {
+    S.key = key || ('other:' + (name || '') + ':' + Date.now());
     // 古い版（v2 ドラフト）なら正式版へ直してから扱う。何を直したかは概要に出す
     if (!feed.flexVersion) {
       const conv = window.FlexVersions.toCanonical(feed);
@@ -141,7 +161,12 @@
   }
   $('#fileInput').addEventListener('change', async e => {
     const f = e.target.files[0]; if (!f) return;
-    try { await loadFeed(await G.loadZip(await f.arrayBuffer()), f.name); } catch (err) { alert('読み込めませんでした: ' + err.message); }
+    try {
+      const key = 'file:' + f.name;
+      const saved = await beforeOpen(key);
+      if (saved) await loadFeed(saved.feed, saved.name, saved.original, key);
+      else await loadFeed(await G.loadZip(await f.arrayBuffer()), f.name, null, key);
+    } catch (err) { alert('読み込めませんでした: ' + err.message); }
     e.target.value = '';
   });
   const odptSel = $('#odptSelect');
@@ -151,11 +176,16 @@
     const d = window.ODPT_FLEX_DATASETS.find(x => x.url === url);
     $('#odptLoad').disabled = true; $('#odptLoad').textContent = '取得中…';
     try {
-      const res = await fetch(url);
-      if (!res.ok) throw new Error('HTTP ' + res.status);
-      const feed = await G.loadZip(await res.arrayBuffer());
-      feed.others = feed.others || {};
-      await loadFeed(feed, d.title);
+      const key = 'odpt:' + url;
+      const saved = await beforeOpen(key);
+      if (saved) await loadFeed(saved.feed, saved.name, saved.original, key);
+      else {
+        const res = await fetch(url);
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        const feed = await G.loadZip(await res.arrayBuffer());
+        feed.others = feed.others || {};
+        await loadFeed(feed, d.title, null, key);
+      }
       $('#feedSummary').textContent += `\n出典: 公共交通オープンデータセンター ${d.page}（CC BY 4.0）`;
     } catch (err) { alert('ODPT から取得できませんでした: ' + err.message); }
     $('#odptLoad').disabled = false; $('#odptLoad').textContent = '読み込む';
@@ -173,7 +203,7 @@
       const how = [o.phone ? '電話' : '', o.bookingUrl ? 'Web' : ''].filter(Boolean).join('か') || '電話';
       o.bookingMessage = o.bookingType === '0' ? '予約なしで乗れます' : o.bookingType === '2' ? `${o.lastDay || 1} 日前の ${(o.lastTime || '17:00:00').slice(0, 5)} までに${how}で予約してください` : `ご利用の ${o.noticeMin || 30} 分前までに${how}で予約してください`;
     }
-    loadFeed(G.templateFeed(o), '新規');
+    stashCurrent().then(() => loadFeed(G.templateFeed(o), '新規 ' + (o.agencyName || ''), null, 'new:' + Date.now()));
     setTab('zones');
   });
 
@@ -820,7 +850,10 @@
     const d = S.diff = window.FlexDiff.diff(S.original, S.feed);
     const t = d.totals;
     const badge = $('#changeBadge'); badge.textContent = (t.added + t.updated + t.deleted) ? `${t.added + t.updated + t.deleted}` : '';
-    $('#changeSummary').textContent = (t.added + t.updated + t.deleted) ? `読み込んだときのデータと比べて、追加 ${t.added} 件・更新 ${t.updated} 件・削除 ${t.deleted} 件。ファイルを選ぶと内訳が出ます。` : '読み込んだときのデータと比べた変更はありません。';
+    $('#changeSummary').textContent = (t.added + t.updated + t.deleted) ? `読み込んだときのデータと比べて、追加 ${t.added} 件・更新 ${t.updated} 件・削除 ${t.deleted} 件。ファイルを選ぶと内訳が出ます。\nこの修正はブラウザに残り、別のデータに切り替えてもこのデータを選び直せば続きから開けます。` : '読み込んだときのデータと比べた変更はありません。';
+    let btn = $('#btnForget');
+    if (!btn) { btn = el('button', { id: 'btnForget', class: 'btn small danger', onclick: async () => { if (!confirm('このデータの修正をブラウザから消し、元のデータに戻しますか？（zip に書き出していなければ修正は失われます）')) return; try { await STORE.deleteFeed(S.key); } catch (e) { /* なければよい */ } const orig = structuredClone(S.original); await loadFeed(orig, S.name, structuredClone(orig), S.key); } }, '修正を捨てて元に戻す'); $('#changeSummary').after(btn); }
+    btn.style.display = (t.added + t.updated + t.deleted) ? '' : 'none';
     const tbl = $('#diffTable'); tbl.innerHTML = '';
     tbl.append(el('thead', null, el('tr', null, el('th', null, 'ファイル'), el('th', null, '追加'), el('th', null, '更新'), el('th', null, '削除'))));
     const tb = el('tbody');
@@ -883,7 +916,7 @@
         const act = v => {
           if (handled) return; handled = true;
           if (v === 'discard') { STORE.clear(); return; }
-          loadFeed(saved.feed, saved.name, saved.original || null).catch(e => { console.error('前回の続きの読み込みに失敗', e); alert('前回の続きを読み込めませんでした: ' + e.message); });
+          loadFeed(saved.feed, saved.name, saved.original || null, saved.key).catch(e => { console.error('前回の続きの読み込みに失敗', e); alert('前回の続きを読み込めませんでした: ' + e.message); });
         };
         dlg.querySelector('button[value=resume]').addEventListener('click', () => act('resume'));
         dlg.querySelector('button[value=discard]').addEventListener('click', () => act('discard'));

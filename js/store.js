@@ -1,12 +1,12 @@
 // ブラウザ内（IndexedDB）への自動保存。zip の書き出しとは別に、作業中のデータを数秒ごとに残す。
 (function () {
   'use strict';
-  const DB = 'gtfs-flex-tool', STORE = 'autosave', KEY = 'current';
+  const DB = 'gtfs-flex-tool', STORE = 'autosave', KEY = 'current', FEEDS = 'feeds';
 
   function open() {
     return new Promise((res, rej) => {
-      const r = indexedDB.open(DB, 1);
-      r.onupgradeneeded = () => { r.result.createObjectStore(STORE); };
+      const r = indexedDB.open(DB, 2);
+      r.onupgradeneeded = () => { const db = r.result; if (!db.objectStoreNames.contains(STORE)) db.createObjectStore(STORE); if (!db.objectStoreNames.contains(FEEDS)) db.createObjectStore(FEEDS); };
       r.onsuccess = () => res(r.result);
       r.onerror = () => rej(r.error);
     });
@@ -50,5 +50,18 @@
     return { schedule, flush };
   }
 
-  window.FlexStore = { save, load, clear, autosaver };
+  // データごとの保存。key は ODPT の URL、ファイル名、新規の ID など
+  function tx(storeName, mode, fn) {
+    return open().then(db => new Promise((res, rej) => {
+      const t = db.transaction(storeName, mode); const st = t.objectStore(storeName); let result;
+      const q = fn(st); if (q) q.onsuccess = () => { result = q.result; };
+      t.oncomplete = () => { db.close(); res(result); }; t.onerror = () => { db.close(); rej(t.error); };
+    }));
+  }
+  const saveFeed = (key, obj) => tx(FEEDS, 'readwrite', st => st.put(obj, key));
+  const loadFeed = key => tx(FEEDS, 'readonly', st => st.get(key)).then(v => v || null);
+  const deleteFeed = key => tx(FEEDS, 'readwrite', st => st.delete(key));
+  const listFeeds = () => tx(FEEDS, 'readonly', st => st.getAllKeys());
+
+  window.FlexStore = { save, load, clear, autosaver, saveFeed, loadFeed, deleteFeed, listFeeds };
 })();
