@@ -861,8 +861,11 @@
     if (w == null) delete all[file][col]; else all[file][col] = w;
     try { localStorage.setItem(COLW_KEY, JSON.stringify(all)); } catch (e) { /* 覚えられなくても、この表示の間は効く */ }
   }
+  // 幅を決めた列がある表は、枠いっぱいに広げない（広げると余った幅がほかの列に配られ、決めた幅にならない。
+  // 2 列しかない location_group_stops で、狭めても列が縮まず入力欄だけが縮んだ）
   function colwCss(widths) {
-    return Object.entries(widths).map(([c, w]) => {
+    const keys = Object.keys(widths);
+    return (keys.length ? 'table.grid { min-width: 0; }\n' : '') + Object.entries(widths).map(([c, w]) => {
       const q = '"' + c.replace(/["\\]/g, '\\$&') + '"';
       return `table.grid th[data-col=${q}] > .thin { width: ${w - 12}px; overflow: hidden; text-overflow: ellipsis; }\n` +
         `table.grid td[data-col=${q}] input, table.grid td[data-col=${q}] select { width: ${w}px; min-width: 0; box-sizing: border-box; }`;
@@ -872,16 +875,23 @@
     let start = null;
     handle.addEventListener('pointerdown', e => {
       e.preventDefault(); e.stopPropagation();
-      const th = handle.closest('th'); start = { x: e.clientX, w: th.getBoundingClientRect().width, th };
+      // ドラッグを始めたときの、ほかの列の幅をそのまま固定する（動かした列だけが変わる。覚えるときも一緒に覚え、開き直しても配置が崩れない）
+      const th = handle.closest('th'), all = {};
+      for (const h of th.closest('tr').querySelectorAll('th[data-col]')) all[h.dataset.col] = Math.round(h.getBoundingClientRect().width);
+      start = { x: e.clientX, w: th.getBoundingClientRect().width, th, all };
       try { handle.setPointerCapture(e.pointerId); } catch (err) { /* 捕まえられなくても動かせる */ } handle.classList.add('on');
     });
     handle.addEventListener('pointermove', e => {
       if (!start) return;
       const w = Math.round(Math.min(COLW_MAX, Math.max(COLW_MIN, start.w + e.clientX - start.x)));
       const st = start.th.closest('#editor').querySelector('style.colw');
-      st.textContent = colwCss(Object.assign({}, colWidths(file), { [col]: w })); start.cur = w;
+      st.textContent = colwCss(Object.assign({}, start.all, colWidths(file), { [col]: w })); start.cur = w;
     });
-    const end = () => { if (!start) return; if (start.cur) setColWidth(file, col, start.cur); start = null; handle.classList.remove('on'); };
+    const end = () => {
+      if (!start) return;
+      if (start.cur) { const saved = colWidths(file); for (const [c, w] of Object.entries(start.all)) if (c !== col && saved[c] == null) setColWidth(file, c, w); setColWidth(file, col, start.cur); }
+      start = null; handle.classList.remove('on');
+    };
     handle.addEventListener('pointerup', end); handle.addEventListener('pointercancel', end);
     handle.addEventListener('dblclick', e => { e.stopPropagation(); setColWidth(file, col, null); const st = handle.closest('#editor').querySelector('style.colw'); if (st) st.textContent = colwCss(colWidths(file)); });
     handle.addEventListener('click', e => e.stopPropagation());
