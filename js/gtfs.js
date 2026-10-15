@@ -87,6 +87,18 @@
     for (const f of SPEC[name].fields) if (!f.draft && !t.header.includes(f.name)) t.header.push(f.name);
   }
   function rows(feed, name) { return feed.files[name] ? feed.files[name].rows : []; }
+  // 停留所を消す。参照している行（グループの対応、便の行、乗継、構内経路、運賃エリア）も消し、子の parent_station を空にする
+  function removeStops(feed, ids) {
+    const set = new Set(ids), F = feed.files;
+    const drop = (name, pred) => { if (F[name]) F[name].rows = F[name].rows.filter(r => !pred(r)); };
+    drop('stops.txt', r => set.has(r.stop_id));
+    for (const r of rows(feed, 'stops.txt')) if (set.has(r.parent_station)) r.parent_station = '';
+    drop('location_group_stops.txt', r => set.has(r.stop_id));
+    drop('stop_times.txt', r => set.has(r.stop_id));
+    drop('transfers.txt', r => set.has(r.from_stop_id) || set.has(r.to_stop_id));
+    drop('pathways.txt', r => set.has(r.from_stop_id) || set.has(r.to_stop_id));
+    drop('stop_areas.txt', r => set.has(r.stop_id));
+  }
   function newRow(name, init) {
     const o = {};
     (SPEC[name] ? SPEC[name].cols : []).forEach(c => { o[c] = ''; });
@@ -197,5 +209,5 @@
     else { mk(o.tripId + '_1', from, to, o.headsign, 0); mk(o.tripId + '_2', to, from, o.headsignBack || '', 1); }
   }
 
-  window.GTFS = { SPEC, ORDER, parseCSV, tableFromCSV, tableToCSV, emptyFeed, ensureTable, addSpecColumns, rows, newRow, loadZip, saveZip, parseTime, fmtTime, templateFeed, addZoneTrip };
+  window.GTFS = { SPEC, ORDER, parseCSV, tableFromCSV, tableToCSV, emptyFeed, ensureTable, addSpecColumns, rows, removeStops, newRow, loadZip, saveZip, parseTime, fmtTime, templateFeed, addZoneTrip };
 })();

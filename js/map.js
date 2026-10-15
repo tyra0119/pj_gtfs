@@ -62,6 +62,13 @@
       const tip = new maplibregl.Popup({ closeButton: false, closeOnClick: false, offset: 10, className: 'stop-tip' });
       map.on('mousemove', 'stops', e => { const f = e.features[0]; if (!f) return; tip.setLngLat(f.geometry.coordinates).setText((f.properties.stop_name || '(名前なし)') + '　' + f.properties.stop_id).addTo(map); });
       map.on('mouseleave', 'stops', () => tip.remove());
+      // 区域にマウスを乗せても名前を出す（停留所の上では停留所を優先）
+      map.on('mousemove', 'loc-fill', e => {
+        if (state.mode === 'draw' || map.queryRenderedFeatures(e.point, { layers: ['stops'] }).length) return;
+        const p = e.features[0] && e.features[0].properties; if (!p) return;
+        tip.setLngLat(e.lngLat).setText((p.stop_name || '(名前なし)') + '　区域 ' + p._id).addTo(map);
+      });
+      map.on('mouseleave', 'loc-fill', () => tip.remove());
       wire();
     });
 
@@ -71,6 +78,8 @@
       map.on('mouseleave', 'stops', () => { canvas.style.cursor = state.mode === 'draw' || state.mode === 'addStop' ? 'crosshair' : ''; });
       map.on('mouseenter', 'verts', () => { canvas.style.cursor = 'move'; });
       map.on('mouseleave', 'verts', () => { canvas.style.cursor = ''; });
+      map.on('mouseenter', 'loc-fill', () => { if (state.mode === 'none') canvas.style.cursor = 'pointer'; });
+      map.on('mouseleave', 'loc-fill', () => { if (state.mode === 'none') canvas.style.cursor = ''; });
 
       map.on('click', e => {
         if (state.mode === 'draw') { state.draft.push([e.lngLat.lng, e.lngLat.lat]); renderDraft(); return; }
@@ -80,7 +89,8 @@
         const stops = map.queryRenderedFeatures(e.point, { layers: ['stops'] });
         if (stops.length) { H.onStopClick(stops[0].properties.stop_id, e); return; }
         const locs = map.queryRenderedFeatures(e.point, { layers: ['loc-fill'] });
-        if (locs.length) { H.onLocationClick(locs[0].properties._index); return; }
+        // 区域が重なっていれば、押した所にある区域をすべて渡す（どれを選ぶかは画面側で決める）
+        if (locs.length) { H.onLocationClick(locs[0].properties._index, e.lngLat, [...new Set(locs.map(f => f.properties._index))]); return; }
       });
       map.on('dblclick', e => { if (state.mode === 'draw') { e.preventDefault(); finishDraw(); } });
       document.addEventListener('keydown', e => {

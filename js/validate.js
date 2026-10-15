@@ -18,6 +18,16 @@
     jp3: { label: 'GTFS-JP 第3版（2021）', short: 'GTFS-JP v3' },
     intl: { label: '国際仕様のみ（GTFS Schedule + Flex 正式版）', short: '国際仕様' },
   };
+  // 日本のデータか: 事業者のタイムゾーンが Asia/Tokyo、タイムゾーンがなければ停留所の過半が日本の範囲。
+  // 海外のデータに「日本の範囲外」を出さないため。読み込み時に基準を国際仕様にするのにも使う（app.js）
+  function isJapan(feed) {
+    const R = n => (feed.files[n] ? feed.files[n].rows : []);
+    const tzs = R('agency.txt').map(a => a.agency_timezone).filter(Boolean);
+    if (tzs.length) return tzs.includes('Asia/Tokyo');
+    const st = R('stops.txt').filter(r => r.stop_lat && r.stop_lon);
+    if (!st.length) return true;
+    return st.filter(r => +r.stop_lat >= JP.latMin && +r.stop_lat <= JP.latMax && +r.stop_lon >= JP.lonMin && +r.stop_lon <= JP.lonMax).length / st.length >= 0.5;
+  }
   function makeCtx(feed, profile) {
     const out = [];
     const F = feed.files;
@@ -41,14 +51,7 @@
       serviceIds: new Set([...R('calendar.txt').map(r => r.service_id), ...R('calendar_dates.txt').map(r => r.service_id)].filter(Boolean)),
       locIds: new Map(),
       today: today(),
-      // 日本のデータか: 事業者のタイムゾーンが Asia/Tokyo、タイムゾーンがなければ停留所の過半が日本の範囲。海外のデータに「日本の範囲外」を出さないため
-      japan: (() => {
-        const tzs = R('agency.txt').map(a => a.agency_timezone).filter(Boolean);
-        if (tzs.length) return tzs.includes('Asia/Tokyo');
-        const st = R('stops.txt').filter(r => r.stop_lat && r.stop_lon);
-        if (!st.length) return true;
-        return st.filter(r => +r.stop_lat >= JP.latMin && +r.stop_lat <= JP.latMax && +r.stop_lon >= JP.lonMin && +r.stop_lon <= JP.lonMax).length / st.length >= 0.5;
-      })(),
+      japan: isJapan(feed),
     };
     for (const [name, spec] of Object.entries(FILES)) {
       if (!spec.key || !F[name]) continue;
@@ -420,7 +423,7 @@
         R('calendar.txt').forEach((r, i) => { if (!usedServices.has(r.service_id)) warn('calendar.txt', i, 'service_id', `service_id "${r.service_id}" はどの便にも使われていない`, 'unused', c.delRow('calendar.txt', r, `service_id "${r.service_id}" を消す`)); });
         const usedStops = new Set([...st.map(r => r.stop_id), ...R('location_group_stops.txt').map(r => r.stop_id)].filter(Boolean));
         const parents = new Set(R('stops.txt').map(r => r.parent_station).filter(Boolean));
-        R('stops.txt').forEach((r, i) => { if ((r.location_type || '0') === '0' && !usedStops.has(r.stop_id) && !parents.has(r.stop_id)) warn('stops.txt', i, 'stop_id', `停留所 "${r.stop_id}" ${r.stop_name || ''} はどの便・グループにも使われていない`, 'unused', c.delRow('stops.txt', r, `停留所 "${r.stop_id}" を消す`)); });
+        R('stops.txt').forEach((r, i) => { if ((r.location_type || '0') === '0' && !usedStops.has(r.stop_id) && !parents.has(r.stop_id)) warn('stops.txt', i, 'stop_id', `停留所 "${r.stop_id}" ${r.stop_name || ''} はどの便・グループにも使われていない`, 'unused', { label: `停留所 "${r.stop_id}" を消す（乗継・構内経路・運賃エリアの参照も外す）`, safe: false, apply: feed => window.GTFS.removeStops(feed, [r.stop_id]) }); });
       },
     },
   ];
@@ -443,6 +446,62 @@
     return c.out;
   }
 
+  // ---------- 同じ種類の指摘のまとめ ----------
+  // 行ごとの指摘は、同じ原因で数百件並ぶとほかの指摘が埋もれる。重さ・ファイル・code・列が同じ指摘が GROUP_MIN 件以上あれば 1 つにまとめる。
+  // 戻り値は並び順を保った一覧で、要素は指摘そのものか { group: true, key, level, file, field, code, items, msg, note, fix }。
+  // 件数の集計と地図の「!」は、まとめる前の個別の指摘で数える（ここは表示用）。
+  const GROUP_MIN = 6;
+  const GROUP_TITLE = {
+    'stops.txt:unused': n => `使われていない停留所が ${n} 件（どの便・グループにも使われていない）`,
+    'location_groups.txt:unused': n => `どの便にも使われていないグループが ${n} 件`,
+    'locations.geojson:unused': n => `どの便にも使われていない区域が ${n} 件`,
+    'booking_rules.txt:unused': n => `どの行にも使われていない予約ルールが ${n} 件`,
+    'routes.txt:unused': n => `便のない路線が ${n} 件`,
+    'calendar.txt:unused': n => `どの便にも使われていない service_id が ${n} 件`,
+    'locations.geojson:ring_winding': n => `区域の外周・穴の向きが逆（外周は反時計回り、穴は時計回りが決まり）のリングが ${n} 個`,
+    'stop_times.txt:window_required': n => `乗降時間帯（start / end_pickup_drop_off_window）のない区域の行が ${n} 件`,
+  };
+  function groupIssues(issues, feed, min) {
+    min = min || GROUP_MIN;
+    const keyOf = it => [it.level, it.file, it.code, it.field].join('|');
+    const by = new Map();
+    for (const it of issues) { const k = keyOf(it); if (!by.has(k)) by.set(k, []); by.get(k).push(it); }
+    const out = [], done = new Set();
+    for (const it of issues) {
+      const k = keyOf(it), list = by.get(k);
+      if (list.length < min) { out.push(it); continue; }
+      if (done.has(k)) continue;
+      done.add(k);
+      out.push(makeGroup(k, list, feed));
+    }
+    return out;
+  }
+  function makeGroup(key, items, feed) {
+    const first = items[0], n = items.length, { level, file, code, field } = first;
+    const rowOf = it => (feed && it.row != null && feed.files[it.file] ? feed.files[it.file].rows[it.row - 2] : null);
+    const title = GROUP_TITLE[file + ':' + code];
+    const g = { group: true, key, level, file, field, code, items, msg: title ? title(n) : `同じ種類の指摘が ${n} 件（例: ${first.msg}）`, note: '', fix: null };
+    if (code === 'window_required') {
+      // 時刻も乗降時間帯もない区域の行は、最初期ドラフトの「経路から一定距離の迂回」の書き方。正式版では表せない
+      const noTime = items.filter(it => { const r = rowOf(it); return r && !r.arrival_time && !r.departure_time && !r.start_pickup_drop_off_window && !r.end_pickup_drop_off_window; }).length;
+      g.note = noTime
+        ? `うち ${noTime} 行は時刻も乗降時間帯もない区域の行。ドラフト版（2019〜20 年ごろ）の「経路から一定距離の迂回」（決まった経路を走り、経路から一定距離の区域内なら寄り道して乗り降りできる）の書き方で、正式版の GTFS-Flex には同じ意味の書き方がない。データの誤りではないが、正式版で使うには行ごとに乗降時間帯を入れるか、区域の便として作り直す必要がある`
+        : '区域の行は、乗り降りできる時間帯（開始と終了）が必須。便の運行時間に合わせて入れる';
+    }
+    if (items.every(it => it.fix)) {
+      if (file === 'stops.txt' && code === 'unused') {
+        const ids = items.map(it => (rowOf(it) || {}).stop_id).filter(Boolean);
+        if (ids.length === n) g.fix = { label: `使われていない停留所 ${n} 件をまとめて消す（乗継・構内経路・運賃エリアの参照も外す）`, safe: false, apply: feed => window.GTFS.removeStops(feed, ids) };
+      }
+      if (!g.fix) {
+        const fixes = items.map(it => it.fix);
+        const label = code === 'ring_winding' ? `${n} 個のリングの向きをまとめて反転する（外周を反時計回り、穴を時計回りに）` : `${n} 件の修正案をまとめて適用する（${first.fix.label} など）`;
+        g.fix = { label, safe: fixes.every(f => f.safe), apply: feed => { for (const f of fixes) f.apply(feed); } };
+      }
+    }
+    return g;
+  }
+
   function today() { const d = new Date(); return d.getFullYear() + String(d.getMonth() + 1).padStart(2, '0') + String(d.getDate()).padStart(2, '0'); }
   function ringArea(ring) { let a = 0; for (let i = 0; i < ring.length - 1; i++) a += ring[i][0] * ring[i + 1][1] - ring[i + 1][0] * ring[i][1]; return a / 2; }
   function selfIntersects(ring) {
@@ -459,5 +518,5 @@
     return o(a, b, c) !== o(a, b, d) && o(c, d, a) !== o(c, d, b) && o(a, b, c) !== 0 && o(a, b, d) !== 0;
   }
 
-  window.FlexValidate = { validate, RULES, PROFILES };
+  window.FlexValidate = { validate, RULES, PROFILES, isJapan, groupIssues, GROUP_MIN };
 })();

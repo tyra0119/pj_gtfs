@@ -8,7 +8,7 @@
   const S = {
     feed: null, original: null, name: '', issues: [], dirty: false, diff: null, diffFile: '',
     file: 'stop_times.txt', mode: 'table', page: 0, pageSize: 200, filter: '', hlRow: null, formIndex: 0,
-    group: '', loc: -1, stop: null, disabledRules: new Set(), profile: 'jp4',
+    group: '', loc: -1, stop: null, disabledRules: new Set(), profile: 'jp4', profilePref: 'jp4', profileKey: null, japan: true,
   };
   const PAGE_SIZE = 200;
 
@@ -58,7 +58,14 @@
       r.splice(index, 1); if (index === 0) r[r.length - 1] = r[0].slice();
       changed(); M.setLocations(S.feed.locations, S.loc);
     },
-    onLocationClick(i) { S.loc = i; renderZones(); refreshMap(); },
+    // 区域を押したら選んで吹き出しを出す。重なっていれば一番小さい区域（大きな区域の中の小さな区域を押せるように）
+    onLocationClick(i, ll, all) {
+      const feats = (S.feed && S.feed.locations && S.feed.locations.features) || [];
+      const hits = (all && all.length ? all : [i]).filter(k => feats[k]);
+      if (!hits.length) return;
+      hits.sort((a, b) => ringArea(feats[a]) - ringArea(feats[b]));
+      selectLocation(hits[0], { popup: true, at: ll && [ll.lng, ll.lat], hits });
+    },
     onLocateFallback() { const f = stopFeatures(); if (f.length) M.fitTo(f); },
   });
   // 地図の入れ物の大きさが変わったら描き直す（初期化時に 0 だったり、ブラウザの表示領域が後から決まることがある）
@@ -150,12 +157,18 @@
       feed.flexVersion = conv.version; feed.conversionNotes = conv.notes;
     }
     S.feed = feed; S.name = name; S.dirty = false; S.hlRow = null; S.page = 0; S.filter = '';
+    closePopups(); // 前のデータの吹き出しを残さない
     S.original = original || structuredClone(feed);
     const gi = document.getElementById('graphInfo'); if (gi) gi.innerHTML = '';
     S.diffFile = '';
     S.group = (G.rows(feed, 'location_groups.txt')[0] || {}).location_group_id || '';
     S.loc = feed.locations && feed.locations.features.length ? 0 : -1;
     S.stop = null;
+    // 検証の基準: 海外のデータ（事業者のタイムゾーンが Asia/Tokyo でない）は国際仕様、日本のデータは利用者の選んだ基準。
+    // 手で選んだ基準は、同じデータの間（同じ鍵で開き直したときも）上書きしない
+    S.japan = V.isJapan(feed);
+    if (S.profileKey !== S.key) { S.profile = S.japan ? S.profilePref : 'intl'; S.profileKey = null; }
+    $('#profileSelect').value = S.profile;
     fillFileSelect();
     runValidate();
     renderEditor(); renderZones(); renderTrips(); renderChanges();
@@ -237,7 +250,7 @@
     const VER = window.FlexVersions.VERSIONS;
     const jp = window.FlexVersions.detectJp(S.feed);
     const verLine = (S.feed.flexVersion && S.feed.flexVersion !== 'canonical' ? `\n読み込んだ形式: ${VER[S.feed.flexVersion].short} → 正式版に直して扱っています${(S.feed.conversionNotes || []).length ? '\n　' + S.feed.conversionNotes.join('\n　') : ''}` : '') + `\n仕様: ${jp.label}${jp.jpFiles.length ? '　独自拡張ファイル: ' + jp.jpFiles.join(', ') : ''}`;
-    $('#feedSummary').textContent = `${S.name}\n検証の基準: ${V.PROFILES[S.profile].label}\n事業者: ${ag.agency_name || '-'}　路線 ${cnt('routes.txt')}　便 ${cnt('trips.txt')}　停留所 ${cnt('stops.txt')}　stop_times ${cnt('stop_times.txt')} 行\n区域の表し方: ${flexKind}　グループ ${cnt('location_groups.txt')}　ポリゴン ${S.feed.locations ? S.feed.locations.features.length : 0}　予約ルール ${cnt('booking_rules.txt')}${verLine}\n` + (n('error') === 0 ? '✔ エラーはありません' : `✖ エラーが ${n('error')} 件あります`);
+    $('#feedSummary').textContent = `${S.name}\n検証の基準: ${V.PROFILES[S.profile].label}${S.japan === false && S.profile === 'intl' && S.profileKey !== S.key ? '（海外のデータなので国際仕様で見ています。GTFS-JP の基準でも上で選べます）' : ''}\n事業者: ${ag.agency_name || '-'}　路線 ${cnt('routes.txt')}　便 ${cnt('trips.txt')}　停留所 ${cnt('stops.txt')}　stop_times ${cnt('stop_times.txt')} 行\n区域の表し方: ${flexKind}　グループ ${cnt('location_groups.txt')}　ポリゴン ${S.feed.locations ? S.feed.locations.features.length : 0}　予約ルール ${cnt('booking_rules.txt')}${verLine}\n` + (n('error') === 0 ? '✔ エラーはありません' : `✖ エラーが ${n('error')} 件あります`);
     const fs = $('#filterFile'); const cur = fs.value; fs.innerHTML = '<option value="">すべてのファイル</option>';
     for (const f of [...new Set(S.issues.map(i => i.file))].sort()) fs.append(el('option', { value: f }, f));
     fs.value = cur;
@@ -280,9 +293,15 @@
   }
   $('#btnValidate').addEventListener('click', () => { runValidate(); setTab('validate'); });
   // 検証の基準。ブラウザに記憶する
-  try { const p = localStorage.getItem('profile'); if (p && V.PROFILES[p]) S.profile = p; } catch (e) { /* 使えない環境 */ }
+  // 記憶するのは日本のデータで選んだ基準（海外のデータは読み込むと国際仕様になる）。手で選んだらそのデータの間は保つ
+  try { const p = localStorage.getItem('profile'); if (p && V.PROFILES[p]) S.profilePref = p; } catch (e) { /* 使えない環境 */ }
+  S.profile = S.profilePref;
   $('#profileSelect').value = S.profile;
-  $('#profileSelect').addEventListener('change', e => { S.profile = e.target.value; try { localStorage.setItem('profile', S.profile); } catch (err) { /* 使えない環境 */ } runValidate(); });
+  $('#profileSelect').addEventListener('change', e => {
+    S.profile = e.target.value; S.profileKey = S.key;
+    if (S.japan !== false) { S.profilePref = S.profile; try { localStorage.setItem('profile', S.profile); } catch (err) { /* 使えない環境 */ } }
+    runValidate();
+  });
   for (const id of ['#showErr', '#showWarn', '#showInfo', '#filterFile']) $(id).addEventListener('change', renderIssues);
   function applyFix(it) {
     try { it.fix.apply(S.feed); } catch (e) { alert('修正を適用できませんでした: ' + e.message); return; }
@@ -308,17 +327,56 @@
     $('#btnFixAll').textContent = `安全な修正案をまとめて適用（${safeCount}）`;
     $('#btnFixAll').disabled = !safeCount;
     const frag = document.createDocumentFragment();
-    for (const it of list.slice(0, 500)) {
-      const li = el('li', { class: it.level, onclick: () => jumpTo(it) },
-        el('div', null, it.msg),
-        el('div', { class: 'loc' }, `${it.file}${it.row ? ' ' + it.row + ' 行目' : ''}${it.field ? ' / ' + it.field + '（' + SPEC.label(it.file, it.field) + '）' : ''}`));
-      if (it.fix) li.append(el('div', { class: 'fix' }, el('span', null, '修正案: ' + it.fix.label), el('button', { class: 'btn small', onclick: e => { e.stopPropagation(); applyFix(it); } }, '適用')));
-      li._issue = it;
-      frag.append(li);
-    }
-    if (list.length > 500) frag.append(el('li', { class: 'info' }, `…ほか ${list.length - 500} 件`));
+    // 同じ種類の指摘（重さ・ファイル・code・列が同じ）が多いときは 1 つのまとまりにする。中の個別の指摘は開くと出る
+    const entries = V.groupIssues(list, S.feed);
+    for (const e of entries.slice(0, 500)) frag.append(e.group ? groupLi(e) : issueLi(e));
+    if (entries.length > 500) frag.append(el('li', { class: 'info' }, `…ほか ${entries.slice(500).reduce((a, e) => a + (e.group ? e.items.length : 1), 0)} 件`));
     if (!list.length && S.feed) frag.append(el('li', { class: 'info' }, '該当なし'));
     ul.append(frag);
+  }
+  function issueLi(it) {
+    const li = el('li', { class: it.level, onclick: e => { e.stopPropagation(); jumpTo(it); } },
+      el('div', null, it.msg),
+      el('div', { class: 'loc' }, `${it.file}${it.row ? ' ' + it.row + ' 行目' : ''}${it.field ? ' / ' + it.field + '（' + SPEC.label(it.file, it.field) + '）' : ''}`));
+    if (it.fix) li.append(el('div', { class: 'fix' }, el('span', null, '修正案: ' + it.fix.label), el('button', { class: 'btn small', onclick: e => { e.stopPropagation(); applyFix(it); } }, '適用')));
+    li._issue = it;
+    return li;
+  }
+  // まとまり。開いているかは検証し直しても保つ（key: 重さ|ファイル|code|列）
+  const openGroups = new Set();
+  function groupLi(g) {
+    const open = openGroups.has(g.key);
+    const rows = g.items.map(i => i.row).filter(x => x != null);
+    const sub = el('ul', { class: 'issue-sub' }, ...g.items.map(issueLi));
+    sub.hidden = !open;
+    const toggle = el('button', { class: 'btn small toggle' }, open ? '閉じる' : `${g.items.length} 件を見る`);
+    const li = el('li', { class: g.level + ' group' + (open ? ' open' : ''), onclick: e => { if (!e.target.closest('.issue-sub') && !e.target.closest('.fix')) setGroupOpen(li, !openGroups.has(g.key)); } },
+      el('div', null, el('span', { class: 'count' }, `${g.items.length} 件`), ' ', g.msg),
+      el('div', { class: 'loc' }, `${g.file}${rows.length ? ` ${Math.min(...rows)}〜${Math.max(...rows)} 行目` : ''}${g.field ? ' / ' + g.field + '（' + SPEC.label(g.file, g.field) + '）' : ''}　`, toggle),
+      g.note ? el('div', { class: 'note' }, g.note) : null,
+      g.fix ? el('div', { class: 'fix' }, el('span', null, '修正案: ' + g.fix.label), el('button', { class: 'btn small', onclick: e => { e.stopPropagation(); applyGroupFix(g); } }, 'まとめて適用')) : null,
+      sub);
+    li._group = g;
+    return li;
+  }
+  function setGroupOpen(li, open) {
+    const g = li._group; if (open) openGroups.add(g.key); else openGroups.delete(g.key);
+    li.classList.toggle('open', open);
+    li.querySelector('.issue-sub').hidden = !open;
+    li.querySelector('.toggle').textContent = open ? '閉じる' : `${g.items.length} 件を見る`;
+  }
+  function applyGroupFix(g) {
+    if (!confirm(`${g.fix.label}。\nよろしいですか？（変更のタブで確かめられ、元に戻せます）`)) return;
+    applyFix(g);
+  }
+  // 検証一覧の中の指摘を見せる（まとまりの中なら開く）。地図の吹き出しや「戻る」から使う
+  function showIssueInList(it) {
+    const li = [...$('#issueList').querySelectorAll('li')].find(x => x._issue === it);
+    if (!li) return null;
+    const gli = li.parentNode.closest('li.group');
+    if (gli && !gli.classList.contains('open')) setGroupOpen(gli, true);
+    li.classList.add('current'); li.scrollIntoView({ block: 'center' });
+    return li;
   }
   const ruleList = $('#ruleList');
   for (const r of V.RULES) {
@@ -370,8 +428,7 @@
       const li = [...$('#steps').querySelectorAll('li')].find(x => x.textContent.includes(b.label)); if (li) { li.classList.add('current'); setTimeout(() => li.classList.remove('current'), 2000); }
     } else {
       const ul = $('#issueList'); ul.scrollTop = b.scrollTop;
-      const li = [...ul.querySelectorAll('li')].find(x => x._issue === b.issue);
-      if (li) { li.classList.add('current'); li.scrollIntoView({ block: 'center' }); }
+      showIssueInList(b.issue);
     }
     $('#backBar').hidden = true;
   });
@@ -686,14 +743,7 @@
     if (refs.areas.length) lines.push(`・運賃エリアの対応 ${refs.areas.length} 件`);
     if (refs.children.length) lines.push(`・${refs.children.length} 件の停留所の parent_station を空にする`);
     if (!confirm(`停留所 "${id}" ${st.stop_name || ''} を消しますか？` + (lines.length ? '\n次も一緒に消します:\n' + lines.join('\n') : '\n参照している行はありません'))) return false;
-    const F = S.feed.files;
-    F['stops.txt'].rows = F['stops.txt'].rows.filter(r => r.stop_id !== id);
-    for (const r of refs.children) r.parent_station = '';
-    if (F['location_group_stops.txt']) F['location_group_stops.txt'].rows = F['location_group_stops.txt'].rows.filter(r => r.stop_id !== id);
-    if (F['stop_times.txt']) F['stop_times.txt'].rows = F['stop_times.txt'].rows.filter(r => r.stop_id !== id);
-    if (F['transfers.txt']) F['transfers.txt'].rows = F['transfers.txt'].rows.filter(r => r.from_stop_id !== id && r.to_stop_id !== id);
-    if (F['pathways.txt']) F['pathways.txt'].rows = F['pathways.txt'].rows.filter(r => r.from_stop_id !== id && r.to_stop_id !== id);
-    if (F['stop_areas.txt']) F['stop_areas.txt'].rows = F['stop_areas.txt'].rows.filter(r => r.stop_id !== id);
+    G.removeStops(S.feed, [id]); // 検証の「使われていない停留所をまとめて消す」と同じ消し方
     if (S.stop === id) S.stop = null;
     if (stopPopup) { stopPopup.remove(); stopPopup = null; }
     changed(); fillFileSelect(); renderZones(); renderTrips(); refreshMap(false);
@@ -730,21 +780,103 @@
     return true;
   }
   // 停留所を選ぶ。地図のクリック、「停留所を探す」、表からの移動で共通に使う
-  let stopPopup = null;
+  let stopPopup = null, locPopup = null;
+  function closeLocPopup() { if (locPopup) { locPopup.remove(); locPopup = null; } }
+  function closePopups() { closeLocPopup(); if (stopPopup) { stopPopup.remove(); stopPopup = null; } }
   function selectStop(id, o) {
     o = o || {};
     S.stop = id;
     renderStopForm(); refreshMap(false);
     const r = id && G.rows(S.feed, 'stops.txt').find(x => x.stop_id === id);
     if (stopPopup) { stopPopup.remove(); stopPopup = null; }
+    closeLocPopup();
     if (!r || isNaN(+r.stop_lat) || isNaN(+r.stop_lon)) return;
     if (o.center) M.map.easeTo({ center: [+r.stop_lon, +r.stop_lat], zoom: Math.max(M.map.getZoom(), 15) });
     if (!o.popup) return;
     stopPopup = new maplibregl.Popup({ offset: 12, maxWidth: '300px', focusAfterOpen: false }).setLngLat([+r.stop_lon, +r.stop_lat]).setDOMContent(stopPopupContent(r)).addTo(M.map);
     stopPopup._sid = r.stop_id;
   }
+  // 区域を選ぶ。地図で押したときは吹き出しで中身（使っている便・時間帯・予約・指摘）を出す
+  function selectLocation(i, o) {
+    o = o || {};
+    S.loc = i; renderZones(); refreshMap(false);
+    if (stopPopup) { stopPopup.remove(); stopPopup = null; }
+    closeLocPopup();
+    const f = S.feed.locations && S.feed.locations.features[i];
+    if (!f || !o.popup) return;
+    const at = o.at || locCenter(f); if (!at) return;
+    locPopup = new maplibregl.Popup({ offset: 6, maxWidth: '320px', focusAfterOpen: false }).setLngLat(at).setDOMContent(locPopupContent(f, i, o.hits || [i])).addTo(M.map);
+    locPopup._lid = String(f.id); locPopup._hits = (o.hits || [i]).map(k => String(S.feed.locations.features[k].id));
+  }
+  // 外周の面積（度の平方。大小を比べるだけ）
+  function ringArea(f) {
+    const g = f && f.geometry; if (!g) return Infinity;
+    const polys = g.type === 'Polygon' ? [g.coordinates] : g.type === 'MultiPolygon' ? g.coordinates : [];
+    let s = 0;
+    for (const p of polys) { const r = p[0] || []; let a = 0; for (let k = 0; k < r.length - 1; k++) a += r[k][0] * r[k + 1][1] - r[k + 1][0] * r[k][1]; s += Math.abs(a) / 2; }
+    return s || Infinity;
+  }
+  function locCenter(f) {
+    const pts = []; const walk = c => (typeof c[0] === 'number' ? pts.push(c) : c.forEach(walk)); if (f.geometry) walk(f.geometry.coordinates);
+    if (!pts.length) return null;
+    return [pts.reduce((a, p) => a + p[0], 0) / pts.length, pts.reduce((a, p) => a + p[1], 0) / pts.length];
+  }
+  const secOf = t => { const m = /^(\d+):(\d\d):(\d\d)$/.exec(t || ''); return m ? +m[1] * 3600 + +m[2] * 60 + +m[3] : null; };
+  const BOOKING_LABEL = { 0: '予約なしで乗れる', 1: '当日予約', 2: '前日までの予約' };
+  // 区域の吹き出しの中身
+  function locPopupContent(f, i, hits) {
+    const id = String(f.id), p = f.properties || {};
+    const R = n => G.rows(S.feed, n);
+    const rows = R('stop_times.txt').filter(r => String(r.location_id) === id);
+    const tripIds = [...new Set(rows.map(r => r.trip_id))];
+    const trips = R('trips.txt').filter(t => tripIds.includes(t.trip_id));
+    const routes = [...new Set(trips.map(t => t.route_id))].map(rid => R('routes.txt').find(r => r.route_id === rid) || { route_id: rid });
+    const starts = rows.map(r => secOf(r.start_pickup_drop_off_window)).filter(x => x != null), ends = rows.map(r => secOf(r.end_pickup_drop_off_window)).filter(x => x != null);
+    const hm = s => `${Math.floor(s / 3600)}:${String(Math.floor(s % 3600 / 60)).padStart(2, '0')}`;
+    const ruleIds = [...new Set(rows.flatMap(r => [r.pickup_booking_rule_id, r.drop_off_booking_rule_id]).filter(Boolean))];
+    const rules = ruleIds.map(b => R('booking_rules.txt').find(x => x.booking_rule_id === b) || { booking_rule_id: b, missing: true });
+    // 面積（km²）: 緯度の真ん中で経度の縮みを補正したおおよその値
+    const c = locCenter(f); const km2 = c ? ringArea(f) * 111.32 * 111.32 * Math.cos(c[1] * Math.PI / 180) : 0;
+    const n = f.geometry && f.geometry.type === 'Polygon' ? f.geometry.coordinates[0].length - 1 : null;
+    // この区域の指摘: locations.geojson のこの区域、stop_times.txt でこの区域を使う行
+    const st = R('stop_times.txt');
+    const issues = S.issues.filter(it => it.level !== 'info' && ((it.file === 'locations.geojson' && it.row === i + 2) || (it.file === 'stop_times.txt' && it.row != null && st[it.row - 2] && String(st[it.row - 2].location_id) === id)));
+    const box = el('div', { class: 'stop-popup loc-popup' },
+      el('b', null, p.stop_name || '(名前なし)'),
+      el('div', { class: 'muted small' }, `区域 id ${id}　${f.geometry ? f.geometry.type : '形なし'}${n ? '・頂点 ' + n : ''}${km2 && isFinite(km2) ? `　約 ${km2 < 1 ? km2.toFixed(2) : km2.toFixed(1)} km²` : ''}`));
+    if (p.stop_desc) box.append(el('div', { class: 'small' }, p.stop_desc));
+    if (rows.length) {
+      box.append(el('div', { class: 'small' }, `使っている便 ${tripIds.length} 本（行 ${rows.length}）　路線 ${routes.slice(0, 3).map(r => r.route_short_name || r.route_long_name || r.route_id).join('、')}${routes.length > 3 ? ` ほか ${routes.length - 3}` : ''}`));
+      box.append(el('div', { class: 'small' }, starts.length && ends.length ? `乗り降りできる時間帯 ${hm(Math.min(...starts))}〜${hm(Math.max(...ends))}` : '乗り降りできる時間帯が書かれていない'));
+      if (rules.length) box.append(el('div', { class: 'small' }, '予約 ' + rules.slice(0, 3).map(b => b.missing ? `${b.booking_rule_id}（予約ルールにない）` : `${BOOKING_LABEL[b.booking_type] || '種類 ' + (b.booking_type || '?')}${b.phone_number ? '・☎ ' + b.phone_number : ''}`).join('、') + (rules.length > 3 ? ` ほか ${rules.length - 3}` : '')));
+    } else box.append(el('div', { class: 'small muted' }, 'どの便にも使われていない区域'));
+    if (hits.length > 1) {
+      const others = hits.filter(k => k !== i);
+      box.append(el('div', { class: 'small' }, `ここで重なっている区域 ${others.length}: `, ...others.slice(0, 5).map(k => { const g = S.feed.locations.features[k]; return el('a', { href: '#', class: 'loc-other', onclick: e => { e.preventDefault(); selectLocation(k, { popup: true, at: locPopup && locPopup.getLngLat().toArray(), hits }); } }, `${(g.properties || {}).stop_name || g.id} `); }), others.length > 5 ? `ほか ${others.length - 5}` : null));
+    }
+    // 同じ文の指摘（便の行ごとに出る指摘など）は 1 行にまとめて件数を付ける
+    const byMsg = new Map(); for (const it of issues) { const k = it.level + it.msg; if (!byMsg.has(k)) byMsg.set(k, []); byMsg.get(k).push(it); }
+    const groups = [...byMsg.values()].sort((x, y) => (x[0].level === 'error' ? 0 : 1) - (y[0].level === 'error' ? 0 : 1));
+    box.append(...groups.slice(0, 4).map(g => { const d = popupIssue(g[0]); if (g.length > 1) d.append(` ×${g.length}`); return d; }));
+    if (groups.length > 4) box.append(el('div', { class: 'small muted' }, `ほかに指摘 ${groups.slice(4).reduce((a, g) => a + g.length, 0)} 件（検証タブで）`));
+    box.append(el('div', { class: 'row' },
+      el('button', { class: 'btn small', onclick: () => { S.loc = i; setTab('zones'); renderZones(); $('#locForm').scrollIntoView({ block: 'center' }); } }, '編集'),
+      rows.length ? el('button', { class: 'btn small', onclick: () => { S.file = 'stop_times.txt'; S.mode = 'table'; S.filter = id; S.page = 0; S.hlRow = null; $('#fileSelect').value = S.file; document.querySelectorAll('.modes button').forEach(x => x.classList.toggle('active', x.dataset.mode === 'table')); setTab('files'); renderEditor(); } }, '便の行を見る') : null,
+      el('button', { class: 'btn small danger', onclick: () => { if (deleteLocation(i)) closeLocPopup(); } }, '消す')));
+    return box;
+  }
+  // 吹き出しの指摘 1 行。押すと検証タブのその指摘へ
+  function popupIssue(it) {
+    return el('div', { class: 'popup-issue ' + it.level, onclick: () => { setTab('validate'); showIssueInList(it); } }, (it.level === 'error' ? '✖ ' : '△ ') + it.msg);
+  }
   // 開いている吹き出しを、今のデータと検証結果で描き直す（位置も合わせる）
   function refreshPopup() {
+    if (locPopup && locPopup.isOpen()) {
+      const feats = (S.feed.locations && S.feed.locations.features) || [];
+      const k = feats.findIndex(x => String(x.id) === locPopup._lid);
+      if (k < 0) closeLocPopup();
+      else { const hits = locPopup._hits.map(h => feats.findIndex(x => String(x.id) === h)).filter(x => x >= 0); locPopup.setDOMContent(locPopupContent(feats[k], k, hits.length ? hits : [k])); }
+    }
     if (!stopPopup || !stopPopup.isOpen()) return;
     const r = G.rows(S.feed, 'stops.txt').find(x => x.stop_id === stopPopup._sid) || (S.stop && G.rows(S.feed, 'stops.txt').find(x => x.stop_id === S.stop));
     if (!r) { stopPopup.remove(); stopPopup = null; return; }
@@ -758,7 +890,7 @@
       el('div', { class: 'muted small' }, `stop_id ${r.stop_id}${r.stop_code ? '　番号 ' + r.stop_code : ''}`),
       el('div', { class: 'muted small' }, `${r.stop_lat}, ${r.stop_lon}`),
       groupMembershipUI(r.stop_id, () => selectStop(r.stop_id, { popup: true })),
-      ...((S.stopIssueList && S.stopIssueList.get(r.stop_id)) || []).slice(0, 4).map(it => el('div', { class: 'popup-issue ' + it.level, onclick: () => { setTab('validate'); const li = [...$('#issueList').querySelectorAll('li')].find(x => x._issue === it); if (li) { li.classList.add('current'); li.scrollIntoView({ block: 'center' }); } } }, (it.level === 'error' ? '✖ ' : '△ ') + it.msg)),
+      ...((S.stopIssueList && S.stopIssueList.get(r.stop_id)) || []).slice(0, 4).map(popupIssue),
       el('div', { class: 'row' },
         el('button', { class: 'btn small', onclick: () => { setTab('zones'); renderStopForm(); $('#stopForm').scrollIntoView({ block: 'center' }); } }, '編集'),
         el('button', { class: 'btn small', onclick: () => { S.file = 'stops.txt'; S.mode = 'table'; S.filter = r.stop_id; S.page = 0; S.hlRow = null; $('#fileSelect').value = S.file; document.querySelectorAll('.modes button').forEach(x => x.classList.toggle('active', x.dataset.mode === 'table')); setTab('files'); renderEditor(); } }, '表で見る'),
