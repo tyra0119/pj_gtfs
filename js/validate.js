@@ -12,7 +12,13 @@
   const JP = { latMin: 20, latMax: 46, lonMin: 122, lonMax: 154 };
 
   // ---------- 文脈 ----------
-  function makeCtx(feed) {
+  // 検証の基準: 'jp4'（GTFS-JP v4、既定）/ 'jp3'（GTFS-JP 第3版）/ 'intl'（国際仕様のみ）
+  const PROFILES = {
+    jp4: { label: 'GTFS-JP v4（2026-03、日本標準仕様書）', short: 'GTFS-JP v4' },
+    jp3: { label: 'GTFS-JP 第3版（2021）', short: 'GTFS-JP v3' },
+    intl: { label: '国際仕様のみ（GTFS Schedule + Flex 正式版）', short: '国際仕様' },
+  };
+  function makeCtx(feed, profile) {
     const out = [];
     const F = feed.files;
     const R = n => (F[n] ? F[n].rows : []);
@@ -30,6 +36,7 @@
       warn: (...a) => add('warn', ...a),
       info: (...a) => add('info', ...a),
       delRow, setVal,
+      profile: profile || 'jp4',
       ids: {},        // file -> Map(id -> rowIdx)
       serviceIds: new Set([...R('calendar.txt').map(r => r.service_id), ...R('calendar_dates.txt').map(r => r.service_id)].filter(Boolean)),
       locIds: new Map(),
@@ -79,7 +86,7 @@
           if (spec.presence === 'required' && !has(name)) err(name, null, '', `${name}（${spec.label}）がない、または行がない`, 'missing_file');
         }
         if (!has('calendar.txt') && !has('calendar_dates.txt')) err('calendar.txt', null, '', 'calendar.txt か calendar_dates.txt のどちらかが必要', 'missing_calendar');
-        if (!has('feed_info.txt')) err('feed_info.txt', null, '', 'feed_info.txt がない（GTFS-JP と ODPT への提供では必須）', 'missing_feed_info', { label: 'agency.txt の内容から feed_info.txt を作る', safe: true, apply: feed => { const a = (feed.files['agency.txt'] && feed.files['agency.txt'].rows[0]) || {}; const t = window.GTFS.ensureTable(feed, 'feed_info.txt'); if (!t.rows.length) t.rows.push(window.GTFS.newRow('feed_info.txt', { feed_publisher_name: a.agency_name || '', feed_publisher_url: a.agency_url || '', feed_lang: 'ja' })); } });
+        if (!has('feed_info.txt')) (c.profile === 'intl' ? info : err)('feed_info.txt', null, '', c.profile === 'intl' ? 'feed_info.txt がない（国際仕様では任意。公開するなら入れる）' : 'feed_info.txt がない（GTFS-JP と ODPT への提供では必須）', 'missing_feed_info', { label: 'agency.txt の内容から feed_info.txt を作る', safe: true, apply: feed => { const a = (feed.files['agency.txt'] && feed.files['agency.txt'].rows[0]) || {}; const t = window.GTFS.ensureTable(feed, 'feed_info.txt'); if (!t.rows.length) t.rows.push(window.GTFS.newRow('feed_info.txt', { feed_publisher_name: a.agency_name || '', feed_publisher_url: a.agency_url || '', feed_lang: 'ja' })); } });
         if (!has('stops.txt') && !c.locs.length && !has('location_groups.txt')) err('stops.txt', null, '', 'stops.txt がない（区域だけのデータでも locations.geojson が要る）', 'missing_file');
         if (feed_bad_geojson(c)) return;
         for (const [name, spec] of Object.entries(FILES)) {
@@ -149,7 +156,7 @@
           if (R('agency.txt').length > 1 && !r.agency_id) err('agency.txt', i, 'agency_id', '事業者が複数あるときは agency_id が必須', 'cond_required', c.setVal(r, 'agency_id', 'agency' + (i + 1), null, false));
         });
         R('feed_info.txt').forEach((r, i) => {
-          for (const k of ['feed_start_date', 'feed_end_date', 'feed_version']) if (!r[k]) err('feed_info.txt', i, k, `${k} が空（GTFS-JP v4 では必須。有効期間と版）`, 'publish_missing', k === 'feed_version' ? c.setVal(r, 'feed_version', c.today, `feed_version を今日の日付 ${c.today} にする`, false) : (R('calendar.txt')[0] && R('calendar.txt')[0][k === 'feed_start_date' ? 'start_date' : 'end_date'] ? c.setVal(r, k, R('calendar.txt')[0][k === 'feed_start_date' ? 'start_date' : 'end_date'], `calendar.txt の期間 ${R('calendar.txt')[0][k === 'feed_start_date' ? 'start_date' : 'end_date']} を入れる`, false) : null));
+          for (const k of ['feed_start_date', 'feed_end_date', 'feed_version']) if (!r[k]) (c.profile === 'jp4' ? err : info)('feed_info.txt', i, k, c.profile === 'jp4' ? `${k} が空（GTFS-JP v4 では必須。有効期間と版）` : `${k} が空（公開するデータでは有効期間と版を入れるとよい）`, 'publish_missing', k === 'feed_version' ? c.setVal(r, 'feed_version', c.today, `feed_version を今日の日付 ${c.today} にする`, false) : (R('calendar.txt')[0] && R('calendar.txt')[0][k === 'feed_start_date' ? 'start_date' : 'end_date'] ? c.setVal(r, k, R('calendar.txt')[0][k === 'feed_start_date' ? 'start_date' : 'end_date'], `calendar.txt の期間 ${R('calendar.txt')[0][k === 'feed_start_date' ? 'start_date' : 'end_date']} を入れる`, false) : null));
           if (r.feed_start_date && r.feed_end_date && r.feed_start_date > r.feed_end_date) err('feed_info.txt', i, 'feed_end_date', '終了日が開始日より前', 'date_order');
           if (r.feed_end_date && /^\d{8}$/.test(r.feed_end_date) && r.feed_end_date < c.today) warn('feed_info.txt', i, 'feed_end_date', `feed_end_date ${r.feed_end_date} はすでに過ぎている`, 'expired');
         });
@@ -343,9 +350,11 @@
     },
     {
       // 根拠: 国交省「公共交通運行情報標準データ仕様（GTFS-JP）v4 v3との差分」3.1 / 3.2（2026-03）。国際仕様より厳しいものだけをここで見る
-      id: 'gtfs_jp', label: 'GTFS-JP v4（日本標準仕様書）の必須・推奨', run(c) {
+      id: 'gtfs_jp', label: 'GTFS-JP の必須・推奨（基準が GTFS-JP のとき）', run(c) {
         const { R, has, err, warn, info } = c;
-        const jp = 'GTFS-JP v4';
+        if (c.profile === 'intl') return;
+        const v4 = c.profile === 'jp4';
+        const jp = v4 ? 'GTFS-JP v4' : 'GTFS-JP v3';
         if (!has('fare_attributes.txt')) warn('fare_attributes.txt', null, '', `fare_attributes.txt がない（${jp} では必須。均一運賃でも 1 行書く）`, 'jp_file', { label: '均一運賃の行（price は要入力）を作る', safe: false, apply: feed => { const t = window.GTFS.ensureTable(feed, 'fare_attributes.txt'); if (!t.rows.length) t.rows.push(window.GTFS.newRow('fare_attributes.txt', { fare_id: 'fare1', price: '', currency_type: 'JPY', payment_method: '0', transfers: '0' })); } });
         if (!has('translations.txt')) warn('translations.txt', null, '', `translations.txt がない（${jp} では必須。停留所名などの読み仮名・英語表記）`, 'jp_file');
         const agencies = R('agency.txt');
@@ -353,11 +362,11 @@
           if (!r.agency_id) err('agency.txt', i, 'agency_id', `agency_id が空（${jp} では事業者が 1 つでも必須）`, 'jp_required', c.setVal(r, 'agency_id', 'agency' + (i + 1), null, true));
           if (!r.agency_lang) err('agency.txt', i, 'agency_lang', `agency_lang が空（${jp} では必須）`, 'jp_required', c.setVal(r, 'agency_lang', 'ja', null, true));
         });
-        R('feed_info.txt').forEach((r, i) => {
+        if (v4) R('feed_info.txt').forEach((r, i) => {
           if (!r.feed_contact_email && !r.feed_contact_url) info('feed_info.txt', i, 'feed_contact_email', `連絡先（feed_contact_email か feed_contact_url）が空（${jp} では推奨）`, 'jp_recommended');
         });
-        // location_type は JP v4 で必須。全行空（列がない）なら 1 件にまとめ、一部だけ空なら行ごとに
-        const stops = R('stops.txt'), ltEmpty = stops.filter(r => r.location_type === '' || r.location_type == null);
+        // location_type は JP v4 で必須（v3 では任意）。全行空（列がない）なら 1 件にまとめ、一部だけ空なら行ごとに
+        const stops = R('stops.txt'), ltEmpty = v4 ? stops.filter(r => r.location_type === '' || r.location_type == null) : [];
         if (stops.length && ltEmpty.length === stops.length) err('stops.txt', null, 'location_type', `location_type が全行で空（${jp} では必須。停留所は 0）`, 'jp_required', { label: `全 ${stops.length} 行の location_type を 0（停留所）にする`, safe: true, apply: feed => { const t = window.GTFS.ensureTable(feed, 'stops.txt'); if (!t.header.includes('location_type')) t.header.push('location_type'); for (const r of t.rows) if (!r.location_type) r.location_type = '0'; } });
         else ltEmpty.forEach(r => err('stops.txt', stops.indexOf(r), 'location_type', `location_type が空（${jp} では必須。停留所は 0）`, 'jp_required', c.setVal(r, 'location_type', '0', 'location_type を 0（停留所）にする', true)));
         const only = agencies.length === 1 ? agencies[0].agency_id : '';
@@ -365,8 +374,8 @@
           if (!r.agency_id) err('routes.txt', i, 'agency_id', `agency_id が空（${jp} では必須）`, 'jp_required', only ? c.setVal(r, 'agency_id', only, `agency_id を ${only} にする`, true) : null);
         });
         if (agencies.length > 1) R('fare_attributes.txt').forEach((r, i) => { if (!r.agency_id) err('fare_attributes.txt', i, 'agency_id', `事業者が複数あるので agency_id が必要（${jp}）`, 'jp_required'); });
-        // 推奨の欄は行ごとに出すと多すぎるので、件数でまとめる
-        const rec = (file, col, pred, label) => { const rows = R(file); const n = rows.filter(pred).length; if (n) info(file, null, col, `${col}（${label}）が空の行が ${n} 件（${jp} では推奨）`, 'jp_recommended'); };
+        // 推奨の欄（v4 のみ）は行ごとに出すと多すぎるので、件数でまとめる
+        const rec = (file, col, pred, label) => { if (!v4) return; const rows = R(file); const n = rows.filter(pred).length; if (n) info(file, null, col, `${col}（${label}）が空の行が ${n} 件（${jp} では推奨）`, 'jp_recommended'); };
         rec('routes.txt', 'route_color', r => !r.route_color, '路線の色');
         rec('trips.txt', 'trip_headsign', r => !r.trip_headsign, '行き先表示');
         rec('trips.txt', 'direction_id', r => !r.direction_id, '方向');
@@ -409,7 +418,7 @@
 
   function validate(feed, opts) {
     const disabled = new Set((opts && opts.disabled) || []);
-    const c = makeCtx(feed);
+    const c = makeCtx(feed, opts && opts.profile);
     for (const rule of RULES) {
       if (disabled.has(rule.id)) continue;
       c.setRule(rule.id);
@@ -436,5 +445,5 @@
     return o(a, b, c) !== o(a, b, d) && o(c, d, a) !== o(c, d, b) && o(a, b, c) !== 0 && o(a, b, d) !== 0;
   }
 
-  window.FlexValidate = { validate, RULES };
+  window.FlexValidate = { validate, RULES, PROFILES };
 })();

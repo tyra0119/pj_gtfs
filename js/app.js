@@ -8,7 +8,7 @@
   const S = {
     feed: null, original: null, name: '', issues: [], dirty: false, diff: null, diffFile: '',
     file: 'stop_times.txt', mode: 'table', page: 0, pageSize: 200, filter: '', hlRow: null, formIndex: 0,
-    group: '', loc: -1, stop: null, disabledRules: new Set(),
+    group: '', loc: -1, stop: null, disabledRules: new Set(), profile: 'jp4',
   };
   const PAGE_SIZE = 200;
 
@@ -191,7 +191,7 @@
   // ---------- 検証 ----------
   function runValidate() {
     if (!S.feed) return;
-    S.issues = V.validate(S.feed, { disabled: [...S.disabledRules] });
+    S.issues = V.validate(S.feed, { disabled: [...S.disabledRules], profile: S.profile });
     const n = l => S.issues.filter(i => i.level === l).length;
     $('#cntErr').textContent = 'エラー ' + n('error'); $('#cntWarn').textContent = '警告 ' + n('warn'); $('#cntInfo').textContent = '情報 ' + n('info');
     const F = S.feed.files;
@@ -201,7 +201,7 @@
     const VER = window.FlexVersions.VERSIONS;
     const jp = window.FlexVersions.detectJp(S.feed);
     const verLine = (S.feed.flexVersion && S.feed.flexVersion !== 'canonical' ? `\n読み込んだ形式: ${VER[S.feed.flexVersion].short} → 正式版に直して扱っています${(S.feed.conversionNotes || []).length ? '\n　' + S.feed.conversionNotes.join('\n　') : ''}` : '') + `\n仕様: ${jp.label}${jp.jpFiles.length ? '　独自拡張ファイル: ' + jp.jpFiles.join(', ') : ''}`;
-    $('#feedSummary').textContent = `${S.name}\n事業者: ${ag.agency_name || '-'}　路線 ${cnt('routes.txt')}　便 ${cnt('trips.txt')}　停留所 ${cnt('stops.txt')}　stop_times ${cnt('stop_times.txt')} 行\n区域の表し方: ${flexKind}　グループ ${cnt('location_groups.txt')}　ポリゴン ${S.feed.locations ? S.feed.locations.features.length : 0}　予約ルール ${cnt('booking_rules.txt')}${verLine}\n` + (n('error') === 0 ? '✔ エラーはありません' : `✖ エラーが ${n('error')} 件あります`);
+    $('#feedSummary').textContent = `${S.name}\n検証の基準: ${V.PROFILES[S.profile].label}\n事業者: ${ag.agency_name || '-'}　路線 ${cnt('routes.txt')}　便 ${cnt('trips.txt')}　停留所 ${cnt('stops.txt')}　stop_times ${cnt('stop_times.txt')} 行\n区域の表し方: ${flexKind}　グループ ${cnt('location_groups.txt')}　ポリゴン ${S.feed.locations ? S.feed.locations.features.length : 0}　予約ルール ${cnt('booking_rules.txt')}${verLine}\n` + (n('error') === 0 ? '✔ エラーはありません' : `✖ エラーが ${n('error')} 件あります`);
     const fs = $('#filterFile'); const cur = fs.value; fs.innerHTML = '<option value="">すべてのファイル</option>';
     for (const f of [...new Set(S.issues.map(i => i.file))].sort()) fs.append(el('option', { value: f }, f));
     fs.value = cur;
@@ -240,6 +240,10 @@
     $('#stepsBox').open = doneCount < steps.length - 1;
   }
   $('#btnValidate').addEventListener('click', () => { runValidate(); setTab('validate'); });
+  // 検証の基準。ブラウザに記憶する
+  try { const p = localStorage.getItem('profile'); if (p && V.PROFILES[p]) S.profile = p; } catch (e) { /* 使えない環境 */ }
+  $('#profileSelect').value = S.profile;
+  $('#profileSelect').addEventListener('change', e => { S.profile = e.target.value; try { localStorage.setItem('profile', S.profile); } catch (err) { /* 使えない環境 */ } runValidate(); });
   for (const id of ['#showErr', '#showWarn', '#showInfo', '#filterFile']) $(id).addEventListener('change', renderIssues);
   function applyFix(it) {
     try { it.fix.apply(S.feed); } catch (e) { alert('修正を適用できませんでした: ' + e.message); return; }
