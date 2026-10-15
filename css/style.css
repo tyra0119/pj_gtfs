@@ -50,7 +50,8 @@ input:invalid { border-color: var(--err); }
 .vfilter { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; font-size: 13px; }
 .rules { width: 100%; font-size: 12px; }
 .rules label { display: inline-block; margin-right: 10px; }
-.issues { list-style: none; margin: 8px 0; padding: 0; flex: 1; overflow: auto; }
+/* 一覧は空いた高さに伸ばす。画面が低くても 0 まで縮まないよう最低の高さを持たせ、足りない分はタブ全体を下に送る */
+.issues { list-style: none; margin: 8px 0; padding: 0; flex: 1; overflow: auto; min-height: 240px; }
 .issues li { padding: 6px 8px; border-left: 4px solid #ccc; margin-bottom: 4px; background: #fafafa; cursor: pointer; font-size: 13px; }
 .issues li.error { border-color: var(--err); }
 .issues li.warn { border-color: var(--warn); }
@@ -66,7 +67,7 @@ input:invalid { border-color: var(--err); }
 .modes button.active { background: var(--primary); color: #fff; border-color: var(--primary); }
 #editor { flex: 1; min-height: 0; display: flex; flex-direction: column; }
 .tablebar { display: flex; gap: 6px; align-items: center; margin-bottom: 4px; flex-wrap: wrap; font-size: 13px; }
-.tablewrap { flex: 1; overflow: auto; border: 1px solid var(--line); border-radius: 4px; }
+.tablewrap { flex: 1; overflow: auto; border: 1px solid var(--line); border-radius: 4px; min-height: 240px; }
 table.grid { border-collapse: collapse; font-size: 12px; min-width: 100%; }
 table.grid th { position: sticky; top: 0; background: #eef1f5; padding: 4px 6px; border: 1px solid var(--line); text-align: left; white-space: nowrap; font-weight: 600; }
 table.grid th small { display: block; color: var(--muted); font-weight: 400; }
