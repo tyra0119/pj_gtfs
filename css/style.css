@@ -85,6 +85,10 @@ input:invalid { border-color: var(--err); }
 table.grid { border-collapse: collapse; font-size: 12px; min-width: 100%; }
 table.grid th { position: sticky; top: 0; background: #eef1f5; padding: 4px 6px; border: 1px solid var(--line); text-align: left; white-space: nowrap; font-weight: 600; }
 table.grid th small { display: block; color: var(--muted); font-weight: 400; }
+/* 列の幅を変えるつまみ（見出しの右端） */
+table.grid th .thin { white-space: nowrap; }
+table.grid th .colsz { position: absolute; top: 0; right: 0; width: 8px; height: 100%; cursor: col-resize; z-index: 2; touch-action: none; }
+table.grid th .colsz:hover, table.grid th .colsz.on { background: var(--primary); opacity: .45; }
 table.grid th.req { border-bottom: 2px solid var(--primary); }
 table.grid td { border: 1px solid var(--line); padding: 0; }
 table.grid td input, table.grid td select { width: 100%; min-width: 80px; border: 0; padding: 3px 5px; font: inherit; font-size: 12px; background: transparent; border-radius: 0; }

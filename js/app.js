@@ -820,7 +820,10 @@
         t.header = t.header.filter(x => x !== c); for (const r of t.rows) delete r[c];
         changed(); renderEditor(); refreshMap(false);
       } }, '✕');
-      thead.append(el('th', { class: fd && fd.required === true ? 'req' : '', title: (fd && fd.help ? fd.help + '\n' : '') + reqTitle(fd) }, c, reqMark(fd), fd && fd.required === true ? null : del, el('small', null, fd ? fd.label : '仕様外')));
+      const sz = el('span', { class: 'colsz', title: 'ドラッグで列の幅を変える（ダブルクリックで元の幅）' });
+      colResizer(sz, S.file, c);
+      thead.append(el('th', { class: fd && fd.required === true ? 'req' : '', 'data-col': c, title: (fd && fd.help ? fd.help + '\n' : '') + reqTitle(fd) },
+        el('div', { class: 'thin' }, c, reqMark(fd), fd && fd.required === true ? null : del, el('small', null, fd ? fd.label : '仕様外')), sz));
     }
     thead.append(el('th', null, ''));
     table.append(el('thead', null, thead));
@@ -841,11 +844,48 @@
       tbody.append(tr);
     }
     table.append(tbody); wrap.append(table); box.append(wrap);
+    box.append(el('style', { class: 'colw' }, colwCss(colWidths(S.file))));
     markBadCells();
     if (S.hlRow != null) { const tr = tbody.querySelector(`tr[data-row="${S.hlRow}"]`); if (tr) { tr.scrollIntoView({ block: 'center' }); const td = S.hlField && tr.querySelector(`td[data-col="${S.hlField}"]`); const inp = td && td.querySelector('input,select'); if (inp) inp.focus(); } }
   }
   // 表の印: エラーは赤（bad）、警告は黄色に橙の線（warnc）。同じ欄に両方あればエラーを優先。
   // 列に結び付かない指摘（または見えていない列の指摘）は行番号の欄に ✖ / △ を付ける。欄に乗せると内容が出る
+  // ---------- 表の列の幅 ----------
+  // 見出しの右端のつまみをドラッグして変える（ダブルクリックで元の幅）。幅はファイルと列ごとにブラウザに覚える。
+  // 表は中身に合わせて列の幅が決まるので、幅を決めた列は見出しの中身と入力欄にその幅を与える（狭めた見出しは「…」で切る）
+  const COLW_KEY = 'gtfs.colw', COLW_MIN = 40, COLW_MAX = 800;
+  function colWidthsAll() { try { return JSON.parse(localStorage.getItem(COLW_KEY) || '{}') || {}; } catch (e) { return {}; } }
+  function colWidths(file) { return colWidthsAll()[file] || {}; }
+  function setColWidth(file, col, w) {
+    const all = colWidthsAll(); all[file] = all[file] || {};
+    if (w == null) delete all[file][col]; else all[file][col] = w;
+    try { localStorage.setItem(COLW_KEY, JSON.stringify(all)); } catch (e) { /* 覚えられなくても、この表示の間は効く */ }
+  }
+  function colwCss(widths) {
+    return Object.entries(widths).map(([c, w]) => {
+      const q = '"' + c.replace(/["\\]/g, '\\$&') + '"';
+      return `table.grid th[data-col=${q}] > .thin { width: ${w - 12}px; overflow: hidden; text-overflow: ellipsis; }\n` +
+        `table.grid td[data-col=${q}] input, table.grid td[data-col=${q}] select { width: ${w}px; min-width: 0; box-sizing: border-box; }`;
+    }).join('\n');
+  }
+  function colResizer(handle, file, col) {
+    let start = null;
+    handle.addEventListener('pointerdown', e => {
+      e.preventDefault(); e.stopPropagation();
+      const th = handle.closest('th'); start = { x: e.clientX, w: th.getBoundingClientRect().width, th };
+      try { handle.setPointerCapture(e.pointerId); } catch (err) { /* 捕まえられなくても動かせる */ } handle.classList.add('on');
+    });
+    handle.addEventListener('pointermove', e => {
+      if (!start) return;
+      const w = Math.round(Math.min(COLW_MAX, Math.max(COLW_MIN, start.w + e.clientX - start.x)));
+      const st = start.th.closest('#editor').querySelector('style.colw');
+      st.textContent = colwCss(Object.assign({}, colWidths(file), { [col]: w })); start.cur = w;
+    });
+    const end = () => { if (!start) return; if (start.cur) setColWidth(file, col, start.cur); start = null; handle.classList.remove('on'); };
+    handle.addEventListener('pointerup', end); handle.addEventListener('pointercancel', end);
+    handle.addEventListener('dblclick', e => { e.stopPropagation(); setColWidth(file, col, null); const st = handle.closest('#editor').querySelector('style.colw'); if (st) st.textContent = colwCss(colWidths(file)); });
+    handle.addEventListener('click', e => e.stopPropagation());
+  }
   function markBadCells() {
     const box = $('#editor'); const tbody = box.querySelector('tbody'); if (!tbody) return;
     tbody.querySelectorAll('td.bad, td.warnc').forEach(td => { td.classList.remove('bad', 'warnc'); td.title = ''; });
