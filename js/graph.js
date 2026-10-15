@@ -5,19 +5,21 @@
   'use strict';
   const NS = 'http://www.w3.org/2000/svg';
 
-  // 箱の位置（viewBox 600×510）。上から 事業者 → 路線・運行日 → 便 → 時刻・予約 → 乗降場所
+  // 箱の位置（viewBox 600×630）。上から 事業者 → 路線・運行日 → 便 → 時刻・予約 → 乗降場所 → グループの停留所
+  // 下の 3 段は矢印が集まるので、段の間を広くとる（件数の札が線や箱に重ならないように）
+  const VIEW_H = 630;
   const NODES = [
-    { id: 'agency', file: 'agency.txt', label: '事業者', x: 110, y: 40, required: true },
-    { id: 'feed_info', file: 'feed_info.txt', label: 'データ情報', x: 480, y: 40, required: true },
-    { id: 'routes', file: 'routes.txt', label: '路線', x: 110, y: 125, required: true },
-    { id: 'calendar', file: 'calendar.txt', label: '運行日', x: 330, y: 125, required: true, alt: 'calendar_dates.txt' },
-    { id: 'trips', file: 'trips.txt', label: '便', x: 220, y: 210, required: true },
-    { id: 'stop_times', file: 'stop_times.txt', label: '時刻・乗降時間帯', x: 220, y: 295, required: true },
-    { id: 'booking_rules', file: 'booking_rules.txt', label: '予約ルール', x: 480, y: 295 },
-    { id: 'stops', file: 'stops.txt', label: '停留所', x: 85, y: 395 },
-    { id: 'location_groups', file: 'location_groups.txt', label: '停留所グループ', x: 280, y: 395 },
-    { id: 'locations', file: 'locations.geojson', label: '区域ポリゴン', x: 515, y: 395 },
-    { id: 'location_group_stops', file: 'location_group_stops.txt', label: 'グループの停留所', x: 180, y: 475 },
+    { id: 'agency', file: 'agency.txt', label: '事業者', x: 100, y: 40, required: true },
+    { id: 'feed_info', file: 'feed_info.txt', label: 'データ情報', x: 500, y: 40, required: true },
+    { id: 'routes', file: 'routes.txt', label: '路線', x: 100, y: 140, required: true },
+    { id: 'calendar', file: 'calendar.txt', label: '運行日', x: 345, y: 140, required: true, alt: 'calendar_dates.txt' },
+    { id: 'trips', file: 'trips.txt', label: '便', x: 220, y: 240, required: true },
+    { id: 'stop_times', file: 'stop_times.txt', label: '時刻・乗降時間帯', x: 220, y: 350, required: true },
+    { id: 'booking_rules', file: 'booking_rules.txt', label: '予約ルール', x: 500, y: 350 },
+    { id: 'stops', file: 'stops.txt', label: '停留所', x: 85, y: 485 },
+    { id: 'location_groups', file: 'location_groups.txt', label: '停留所グループ', x: 300, y: 485 },
+    { id: 'locations', file: 'locations.geojson', label: '区域ポリゴン', x: 515, y: 485 },
+    { id: 'location_group_stops', file: 'location_group_stops.txt', label: 'グループの停留所', x: 192, y: 590 },
   ];
   const W = 160, H = 50;
 
@@ -73,6 +75,9 @@
       if (e) { e.refs += refs; e.broken.push(...broken.map(b => Object.assign(b, { col }))); e.cols.push(col); }
       else edges.push({ from, to, cols: [col], colLabel, need: need[0], needNote: need[1], refs, broken: broken.map(b => Object.assign(b, { col })) });
     }
+    // 「どれか 1 つ必須」の矢印（便の行 → 停留所・グループ・区域）: ほかの矢印が使われていれば、使っていない矢印は問題ない
+    const alt = edges.filter(e => e.need === 'どれか 1 つ必須');
+    for (const e of alt) if (!e.refs) { const used = alt.filter(x => x.from === e.from && x.refs).map(x => byId[x.to].label); if (used.length) e.altUsed = used; }
     // どこからも使われていない行（参照される側）
     const used = (to) => { const s = new Set(); for (const [from, col, t] of REFS) if (t === to) for (const r of rowsOf(feed, from)) if (r[col]) s.add(String(r[col])); return s; };
     for (const id of ['routes', 'calendar', 'trips', 'stops', 'location_groups', 'locations', 'booking_rules']) {
@@ -90,10 +95,10 @@
   function render(box, a, H_) {
     const h = Object.assign({ onNode() {}, onEdge() {} }, H_ || {});
     box.innerHTML = '';
-    const svg = el('svg', { viewBox: '0 0 600 510', class: 'graph', role: 'img', 'aria-label': 'ファイルのつながり' });
+    const svg = el('svg', { viewBox: `0 0 600 ${VIEW_H}`, class: 'graph', role: 'img', 'aria-label': 'ファイルのつながり' });
     const defs = el('defs');
     for (const [id, color] of [['ok', '#2a9d4a'], ['bad', '#d33'], ['none', '#aaa']]) {
-      const m = el('marker', { id: 'arr-' + id, viewBox: '0 0 10 10', refX: 9, refY: 5, markerWidth: 7, markerHeight: 7, orient: 'auto-start-reverse' });
+      const m = el('marker', { id: 'arr-' + id, viewBox: '0 0 10 10', refX: 9, refY: 5, markerWidth: 6, markerHeight: 6, orient: 'auto-start-reverse' });
       m.appendChild(el('path', { d: 'M0,0 L10,5 L0,10 z', fill: color })); defs.appendChild(m);
     }
     svg.appendChild(defs);
@@ -109,7 +114,7 @@
       g.appendChild(el('line', { x1: s.x, y1: s.y, x2: t.x, y2: t.y, class: 'hit' }));
       g.appendChild(el('line', { x1: s.x, y1: s.y, x2: t.x, y2: t.y, 'marker-end': `url(#arr-${kind})` }));
       const mx = (s.x + t.x) / 2, my = (s.y + t.y) / 2;
-      const label = e.broken.length ? `途切れ ${e.broken.length}` : e.refs ? `${e.refs}` : (e.need === '任意' ? '任意' : '0');
+      const label = e.broken.length ? `途切れ ${e.broken.length}` : e.refs ? `${e.refs}` : e.need === '任意' ? '任意' : e.altUsed ? '使っていない' : '0';
       const lw = [...label].reduce((w, ch) => w + (ch.charCodeAt(0) > 255 ? 13 : 8), 0) + 14;
       g.appendChild(el('rect', { x: mx - lw / 2, y: my - 11, width: lw, height: 22, rx: 11, class: 'tag' }));
       g.appendChild(el('text', { x: mx, y: my + 5, 'text-anchor': 'middle' }, label));

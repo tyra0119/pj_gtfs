@@ -149,6 +149,7 @@
     }
     S.feed = feed; S.name = name; S.dirty = false; S.hlRow = null; S.page = 0; S.filter = '';
     S.original = original || structuredClone(feed);
+    const gi = document.getElementById('graphInfo'); if (gi) gi.innerHTML = '';
     S.diffFile = '';
     S.group = (G.rows(feed, 'location_groups.txt')[0] || {}).location_group_id || '';
     S.loc = feed.locations && feed.locations.features.length ? 0 : -1;
@@ -171,13 +172,15 @@
     e.target.value = '';
   });
   const odptSel = $('#odptSelect');
-  for (const d of window.ODPT_FLEX_DATASETS) odptSel.append(el('option', { value: d.url }, d.title));
+  { const g1 = el('optgroup', { label: 'ODPT（国内のデマンド交通）' }); for (const d of window.ODPT_FLEX_DATASETS) g1.append(el('option', { value: d.url }, d.title)); odptSel.append(g1); }
+  { const g2 = el('optgroup', { label: '海外の例（OpenTripPlanner の試験データ・区域ポリゴンあり）' }); for (const d of window.SAMPLE_FLEX_DATASETS || []) g2.append(el('option', { value: d.url }, d.title)); odptSel.append(g2); }
   $('#odptLoad').addEventListener('click', async () => {
     const url = odptSel.value; if (!url) return;
-    const d = window.ODPT_FLEX_DATASETS.find(x => x.url === url);
+    const sample = (window.SAMPLE_FLEX_DATASETS || []).find(x => x.url === url);
+    const d = sample || window.ODPT_FLEX_DATASETS.find(x => x.url === url);
     $('#odptLoad').disabled = true; $('#odptLoad').textContent = '取得中…';
     try {
-      const key = 'odpt:' + url;
+      const key = (sample ? 'sample:' : 'odpt:') + url;
       const saved = await beforeOpen(key);
       if (saved) await loadFeed(saved.feed, saved.name, saved.original, key);
       else {
@@ -187,8 +190,8 @@
         feed.others = feed.others || {};
         await loadFeed(feed, d.title, null, key);
       }
-      $('#feedSummary').textContent += `\n出典: 公共交通オープンデータセンター ${d.page}（CC BY 4.0）`;
-    } catch (err) { alert('ODPT から取得できませんでした: ' + err.message); }
+      $('#feedSummary').textContent += sample ? `\n出典: ${d.credit}\n${d.page}` : `\n出典: 公共交通オープンデータセンター ${d.page}（CC BY 4.0）`;
+    } catch (err) { alert((sample ? 'GitHub' : 'ODPT') + ' から取得できませんでした: ' + err.message); }
     $('#odptLoad').disabled = false; $('#odptLoad').textContent = '読み込む';
   });
   $('#btnNew').addEventListener('click', () => $('#newDialog').showModal());
@@ -940,7 +943,7 @@
       onEdge(e) {
         info.innerHTML = '';
         const from = a.nodes.find(x => x.id === e.from), to = a.nodes.find(x => x.id === e.to);
-        const box = el('div', { class: 'box' }, el('b', null, `${from.label} の ${e.cols.join('・')} → ${to.label}`), el('div', null, `つながりの必要: ${e.need}。${e.needNote}`), el('div', null, e.refs ? `指している行 ${e.refs} 件${e.broken.length ? `、そのうち指す先がない行 ${e.broken.length} 件` : '。すべてつながっています。'}` : `指している行はありません${e.need === '任意' ? '（任意なので問題ありません）' : ''}。`));
+        const box = el('div', { class: 'box' }, el('b', null, `${from.label} の ${e.cols.join('・')} → ${to.label}`), el('div', null, `つながりの必要: ${e.need}。${e.needNote}`), el('div', null, e.refs ? `指している行 ${e.refs} 件${e.broken.length ? `、そのうち指す先がない行 ${e.broken.length} 件` : '。すべてつながっています。'}` : `指している行はありません${e.need === '任意' ? '（任意なので問題ありません）' : e.altUsed ? `（便の行は ${e.altUsed.join('・')} で指定しているので、こちらは使っていません。問題ありません）` : ''}。`));
         if (e.broken.length) {
           box.append(el('div', { class: 'small' }, `直し方: 行へ移って ${e.cols.join('・')} を ${to.label}（${to.file}）にある ID に直すか、${to.label} にその ID の行を作ります。`));
           const ul = el('ul');

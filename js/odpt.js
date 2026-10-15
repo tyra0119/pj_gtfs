@@ -99,3 +99,11 @@ window.ODPT_FLEX_DATASETS = [
     "page": "https://ckan.odpt.org/dataset/mizuho_town_mizuho_area"
   }
 ];
+
+// 海外の例: OpenTripPlanner（https://github.com/opentripplanner/OpenTripPlanner、LGPL）の試験データ。
+// ドラフト時代の GTFS-Flex で、区域ポリゴン（locations.geojson）を使う。読み込み時に正式版へ直す。GitHub から直接読む（CORS 許可あり）
+window.SAMPLE_FLEX_DATASETS = [
+  { title: 'アスペン（米国コロラド州）区域内のどこでも乗り降り', url: 'https://raw.githubusercontent.com/opentripplanner/OpenTripPlanner/v2.2.0/src/ext-test/resources/flex/aspen-flex-on-demand.gtfs.zip', page: 'https://github.com/opentripplanner/OpenTripPlanner/tree/v2.2.0/src/ext-test/resources/flex', credit: 'OpenTripPlanner v2.2.0 の試験データ（aspen-flex-on-demand）。GTFS-Flex v2 初期ドラフトの形' },
+  { title: 'コブ郡（米国ジョージア州）定時路線＋区域への迂回', url: 'https://raw.githubusercontent.com/opentripplanner/OpenTripPlanner/v2.2.0/src/ext-test/resources/flex/cobblinc-scheduled-deviated-flex.gtfs.zip', page: 'https://github.com/opentripplanner/OpenTripPlanner/tree/v2.2.0/src/ext-test/resources/flex', credit: 'OpenTripPlanner v2.2.0 の試験データ（cobblinc-scheduled-deviated-flex）。GTFS-Flex v2 初期ドラフトの形' },
+  { title: 'リンカーン郡（米国オレゴン州）デマンド＋経路からの迂回', url: 'https://raw.githubusercontent.com/opentripplanner/OpenTripPlanner/v2.2.0/src/ext-test/resources/flex/lincoln-county-flex.gtfs.zip', page: 'https://github.com/opentripplanner/OpenTripPlanner/tree/v2.2.0/src/ext-test/resources/flex', credit: 'OpenTripPlanner v2.2.0 の試験データ（lincoln-county-flex）。GTFS-Flex v2 最初期ドラフトの形。「経路からの迂回」の行は正式版で表せない' },
+];

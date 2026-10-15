@@ -182,7 +182,7 @@ table.grid th .coldel:hover { color: var(--err); }
 .steps li.current { background: #fff5d6; }
 
 /* つながり（図） */
-.graph { width: 100%; max-width: 440px; height: auto; max-height: 42vh; display: block; margin: 4px auto; }
+.graph { width: 100%; max-width: 440px; height: auto; max-height: 50vh; display: block; margin: 4px auto; }
 .graph .node rect { fill: #fff; stroke: #2a9d4a; stroke-width: 1.5; }
 .graph .node.missing rect { fill: #fdecec; stroke: #d33; stroke-dasharray: 5 3; stroke-width: 2; }
 .graph .node.empty rect { fill: #f6f6f6; stroke: #bbb; stroke-dasharray: 4 3; }
@@ -193,14 +193,15 @@ table.grid th .coldel:hover { color: var(--err); }
 .graph .node.missing .nfile { fill: #b71c1c; }
 .graph .ubadge { fill: #f39c12; stroke: #fff; stroke-width: 1.5; }
 .graph .ubtext { font-size: 11px; fill: #fff; font-weight: 700; }
-.graph .edge line { stroke: #2a9d4a; stroke-width: 2; }
+.graph .edge line { stroke: #2a9d4a; stroke-width: 2.5; }
 .graph .edge line.hit { stroke: transparent; stroke-width: 14; }
-.graph .edge.bad line:not(.hit) { stroke: #d33; stroke-width: 3; }
+.graph .edge.bad line:not(.hit) { stroke: #d33; stroke-width: 3.5; }
 .graph .edge.none line:not(.hit) { stroke: #aaa; stroke-dasharray: 4 3; }
 .graph .edge { cursor: pointer; }
 .graph .edge .tag { fill: #fff; stroke: #2a9d4a; }
 .graph .edge.bad .tag { fill: #d33; stroke: #d33; }
 .graph .edge.none .tag { stroke: #aaa; }
+.graph .edge.none text { fill: #888; }
 .graph .edge text { font-size: 13px; fill: #1f2937; }
 .graph .edge.bad text { fill: #fff; font-weight: 700; }
 .gl { font-weight: 600; } .gl.ok { color: #2a9d4a; } .gl.bad { color: #d33; } .gl.warn { color: #d78a00; }
