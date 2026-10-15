@@ -83,9 +83,9 @@
   $('#map').appendChild(modeBadge);
   $('#map').addEventListener('modechange', e => {
     const m = e.detail;
-    const text = { draw: '区域を描いています: クリックで頂点、ダブルクリックか Enter で確定、Esc で中止', addStop: '地図をクリックした所に停留所を追加します', moveStop: '停留所をドラッグして動かせます', pickStops: '停留所をクリックするとグループに出し入れします' }[m];
+    const text = { freehand: '区域をなぞって描きます: 左ボタンを押したまま（指 1 本で）外周をなぞり、離すと頂点に変わります。Esc で中止', draw: '区域を描いています: クリックで頂点、ダブルクリックか Enter で確定、Esc で中止', addStop: '地図をクリックした所に停留所を追加します', moveStop: '停留所をドラッグして動かせます', pickStops: '停留所をクリックするとグループに出し入れします' }[m];
     modeBadge.style.display = text ? 'block' : 'none'; modeBadge.textContent = text || '';
-    for (const [id, mode] of [['#btnLocDraw', 'draw'], ['#btnStopAdd', 'addStop'], ['#btnStopMove', 'moveStop'], ['#btnPickStops', 'pickStops']]) $(id).classList.toggle('on', m === mode);
+    for (const [id, mode] of [['#btnLocDraw', 'draw'], ['#btnLocFree', 'freehand'], ['#btnStopAdd', 'addStop'], ['#btnStopMove', 'moveStop'], ['#btnPickStops', 'pickStops']]) $(id).classList.toggle('on', m === mode);
   });
   function toggleMode(m) { M.setMode(M.getMode() === m ? 'none' : m); }
 
@@ -1077,6 +1077,7 @@
   $('#btnGroupNone').addEventListener('click', () => { if (!S.group) return; const t = S.feed.files['location_group_stops.txt']; if (t) t.rows = t.rows.filter(r => r.location_group_id !== S.group); changed(); renderZones(); refreshMap(false); });
   $('#locSelect').addEventListener('change', e => { S.loc = +e.target.value; renderZones(); refreshMap(false); const f = S.feed.locations.features[S.loc]; if (f) M.fitTo([f]); });
   $('#btnLocDraw').addEventListener('click', () => { if (!S.feed) return; toggleMode('draw'); });
+  $('#btnLocFree').addEventListener('click', () => { if (!S.feed) return; toggleMode('freehand'); });
   $('#btnLocDel').addEventListener('click', () => { if (S.feed && S.feed.locations) deleteLocation(S.loc); });
   $('#btnStopAdd').addEventListener('click', () => { if (!S.feed) return; toggleMode('addStop'); if (M.getMode() === 'addStop') { S.stop = null; if (stopPopup) { stopPopup.remove(); stopPopup = null; } refreshMap(false); } renderStopForm(); });
   $('#map').addEventListener('modechange', () => { renderStopForm(); if (S.feed && (S.stopView !== 'all' || S.viewTrip)) refreshMap(false); });

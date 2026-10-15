@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>GTFS-Flex 作成・検証ツール</title>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/maplibre-gl/4.7.1/maplibre-gl.min.css">
-<link rel="stylesheet" href="css/style.css?v=4496b80-mv98kafl">
+<link rel="stylesheet" href="css/style.css?v=f2ee728-mv98xvzw">
 </head>
 <body>
 <header class="topbar">
@@ -134,11 +134,12 @@
       <h3>区域ポリゴン（locations.geojson）</h3>
       <div class="row">
         <select id="locSelect"></select>
-        <button id="btnLocDraw" class="btn small toggle">地図に描く</button>
+        <button id="btnLocDraw" class="btn small toggle" title="地図をクリックした所を頂点にする（ダブルクリックか Enter で確定）">地図に描く</button>
+        <button id="btnLocFree" class="btn small toggle" title="左ボタンを押したまま外周をなぞる。離すと頂点に変わる">なぞって描く</button>
         <button id="btnLocDel" class="btn small danger">削除</button>
       </div>
       <div id="locForm" class="form"></div>
-      <p class="muted small">描く: 地図をクリックして頂点を置き、ダブルクリックか Enter で確定（Esc で中止）。直す: 頂点をドラッグ、辺の中点をドラッグして頂点を足す、頂点を右クリックで消す。</p>
+      <p class="muted small">描く: 地図をクリックして頂点を置き、ダブルクリックか Enter で確定（Esc で中止）。なぞって描く: 左ボタンを押したまま外周をなぞり、離すと頂点に変わる。直す: 頂点をドラッグ、辺の中点をドラッグして頂点を足す、頂点を右クリックで消す。</p>
 
       <h3>停留所（stops）</h3>
       <div class="row"><label>停留所を探す <input id="stopFind" list="dl-stops_txt" placeholder="名前か ID"></label></div>
@@ -216,15 +217,15 @@
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/maplibre-gl/4.7.1/maplibre-gl.min.js"></script>
-<script src="js/spec.js?v=4496b80-mv98kafl"></script>
-<script src="js/gtfs.js?v=4496b80-mv98kafl"></script>
-<script src="js/versions.js?v=4496b80-mv98kafl"></script>
-<script src="js/validate.js?v=4496b80-mv98kafl"></script>
-<script src="js/map.js?v=4496b80-mv98kafl"></script>
-<script src="js/odpt.js?v=4496b80-mv98kafl"></script>
-<script src="js/store.js?v=4496b80-mv98kafl"></script>
-<script src="js/diff.js?v=4496b80-mv98kafl"></script>
-<script src="js/graph.js?v=4496b80-mv98kafl"></script>
-<script src="js/app.js?v=4496b80-mv98kafl"></script>
+<script src="js/spec.js?v=f2ee728-mv98xvzw"></script>
+<script src="js/gtfs.js?v=f2ee728-mv98xvzw"></script>
+<script src="js/versions.js?v=f2ee728-mv98xvzw"></script>
+<script src="js/validate.js?v=f2ee728-mv98xvzw"></script>
+<script src="js/map.js?v=f2ee728-mv98xvzw"></script>
+<script src="js/odpt.js?v=f2ee728-mv98xvzw"></script>
+<script src="js/store.js?v=f2ee728-mv98xvzw"></script>
+<script src="js/diff.js?v=f2ee728-mv98xvzw"></script>
+<script src="js/graph.js?v=f2ee728-mv98xvzw"></script>
+<script src="js/app.js?v=f2ee728-mv98xvzw"></script>
 </body>
 </html>

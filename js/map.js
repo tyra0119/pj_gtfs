@@ -102,6 +102,7 @@
       document.addEventListener('keydown', e => {
         if (e.key === 'Enter' && state.mode === 'draw') finishDraw();
         if (e.key === 'Escape' && state.mode === 'draw') { state.draft = []; renderDraft(); setMode('none'); }
+        if (e.key === 'Escape' && state.mode === 'freehand') { fh.pts = null; renderDraft(); setMode('none'); }
         if (e.key === 'Backspace' && state.mode === 'draw' && document.activeElement === document.body) { state.draft.pop(); renderDraft(); }
       });
 
@@ -139,6 +140,47 @@
       if (state.draft.length >= 3) { const ring = state.draft.slice(); ring.push(ring[0].slice()); H.onPolygonDone(ring); }
       state.draft = []; renderDraft(); setMode('none');
     }
+    // ---- なぞって描く ----
+    // 左ボタンを押したまま（指 1 本で）外周をなぞり、離すと、線を間引いて頂点に変える（画面で 3 ピクセルより小さいぶれは省く）
+    const fh = { pts: null };
+    const FH_STEP = 3, FH_TOL = 3, FH_MAX = 300;
+    function fhStart(p) { fh.pts = [[p.x, p.y]]; fhRender(); }
+    function fhMove(p) { if (!fh.pts) return; const l = fh.pts[fh.pts.length - 1]; if (Math.hypot(p.x - l[0], p.y - l[1]) >= FH_STEP) { fh.pts.push([p.x, p.y]); fhRender(); } }
+    function fhRender() {
+      const src = map.getSource('draft'); if (!src) return;
+      const c = (fh.pts || []).map(p => { const ll = map.unproject(p); return [ll.lng, ll.lat]; });
+      src.setData({ type: 'FeatureCollection', features: c.length >= 2 ? [{ type: 'Feature', geometry: { type: 'LineString', coordinates: c.concat(c.length >= 3 ? [c[0]] : []) } }] : [] });
+    }
+    // 線を間引く（Ramer-Douglas-Peucker）
+    function simplify(pts, tol) {
+      if (pts.length < 3) return pts.slice();
+      const keep = new Uint8Array(pts.length); keep[0] = keep[pts.length - 1] = 1;
+      const stack = [[0, pts.length - 1]];
+      while (stack.length) {
+        const [a, b] = stack.pop(); const [ax, ay] = pts[a], [bx, by] = pts[b]; const L = Math.hypot(bx - ax, by - ay) || 1;
+        let md = 0, mi = -1;
+        for (let i = a + 1; i < b; i++) { const d = Math.abs((bx - ax) * (ay - pts[i][1]) - (ax - pts[i][0]) * (by - ay)) / L; if (d > md) { md = d; mi = i; } }
+        if (md > tol && mi > 0) { keep[mi] = 1; stack.push([a, mi], [mi, b]); }
+      }
+      return pts.filter((_, i) => keep[i]);
+    }
+    function fhEnd() {
+      if (!fh.pts) return;
+      let pts = fh.pts; fh.pts = null;
+      // 終わりが始まりの近くなら、その点は始まりと同じとみなす
+      if (pts.length > 3 && Math.hypot(pts[pts.length - 1][0] - pts[0][0], pts[pts.length - 1][1] - pts[0][1]) < 12) pts = pts.slice(0, -1);
+      let s = simplify(pts, FH_TOL), tol = FH_TOL;
+      while (s.length > FH_MAX) { tol *= 1.5; s = simplify(pts, tol); }
+      const r6 = v => Math.round(v * 1e6) / 1e6;
+      const ring = s.map(p => { const ll = map.unproject(p); return [r6(ll.lng), r6(ll.lat)]; });
+      // 面積がほとんどない（線を 1 本引いただけ）なら区域にしない
+      let area = 0; for (let i = 0; i < s.length; i++) { const a = s[i], b = s[(i + 1) % s.length]; area += a[0] * b[1] - b[0] * a[1]; }
+      renderDraft();
+      setMode('none');
+      if (ring.length >= 3 && Math.abs(area) / 2 > 100) { ring.push(ring[0].slice()); H.onPolygonDone(ring); }
+    }
+    // 画面の点の並びで、なぞる操作をまとめて行う（テスト・開発者ツール用）
+    function drawPath(points) { fhStart(points[0]); for (const p of points.slice(1)) fhMove(p); fhEnd(); }
     function renderDraft() {
       const src = map.getSource('draft'); if (!src) return;
       const feats = [];
@@ -150,9 +192,12 @@
     }
 
     function setMode(m) {
+      const prev = state.mode;
       state.mode = m;
-      map.getCanvas().style.cursor = (m === 'draw' || m === 'addStop') ? 'crosshair' : '';
-      if (m === 'draw') map.doubleClickZoom.disable(); else map.doubleClickZoom.enable();
+      map.getCanvas().style.cursor = (m === 'draw' || m === 'addStop' || m === 'freehand') ? 'crosshair' : '';
+      if (m === 'draw' || m === 'freehand') map.doubleClickZoom.disable(); else map.doubleClickZoom.enable();
+      // なぞって描く間は、左ドラッグ（指 1 本）を線を引く操作にする。右ドラッグの回転・ホイールの拡大縮小はそのまま
+      if (m === 'freehand') map.dragPan.disable(); else if (prev === 'freehand') { fh.pts = null; map.dragPan.enable(); }
       if (m !== 'draw') { state.draft = []; renderDraft(); }
       container.dispatchEvent(new CustomEvent('modechange', { detail: m }));
     }
@@ -245,7 +290,25 @@
     const legendExtra = document.createElement('div'); legendExtra.className = 'legend-extra'; legend.appendChild(legendExtra);
     function setLegendExtra(items) { legendExtra.innerHTML = ''; for (const [color, text] of items || []) { const s = document.createElement('span'); const i = document.createElement('i'); i.style.background = color; s.append(i, document.createTextNode(text)); legendExtra.appendChild(s); } legendExtra.style.display = items && items.length ? '' : 'none'; }
     setLegendExtra(null);
-    return { map, state, setMode, setStops, setLocations, setTripLine, setLegendExtra, fitTo, finishDraw, getMode: () => state.mode, top };
+    // なぞって描く: マウス（左ボタン）と指 1 本。2 本目の指が触れたらやめる
+    map.on('mousedown', e => {
+      if (state.mode !== 'freehand' || (e.originalEvent && e.originalEvent.button !== 0)) return;
+      if (e.preventDefault) e.preventDefault();
+      fhStart(e.point);
+      const mv = ev => fhMove(ev.point);
+      map.on('mousemove', mv);
+      window.addEventListener('mouseup', () => { map.off('mousemove', mv); fhEnd(); }, { once: true });
+    });
+    map.on('touchstart', e => {
+      if (state.mode !== 'freehand') return;
+      if (e.points.length !== 1) { fh.pts = null; renderDraft(); return; }
+      if (e.preventDefault) e.preventDefault();
+      fhStart(e.point);
+      const tm = ev => { if (ev.points.length !== 1) { fh.pts = null; renderDraft(); return; } fhMove(ev.point); };
+      map.on('touchmove', tm);
+      map.once('touchend', () => { map.off('touchmove', tm); fhEnd(); });
+    });
+    return { map, state, setMode, setStops, setLocations, setTripLine, setLegendExtra, fitTo, finishDraw, drawPath, getMode: () => state.mode, top };
   }
 
   window.FlexMap = { create };
