@@ -2,7 +2,11 @@
 (function () {
   'use strict';
   const G = window.GTFS, SPEC = window.FLEX_SPEC, V = window.FlexValidate, STORE = window.FlexStore;
-  const $ = s => document.querySelector(s);
+  // ファイル編集を別ウインドウに出しているときは、そのウインドウの中も探す（部品をそのまま移すので、同じ関数で扱える）
+  let pop = null, popped = false;
+  const popDoc = () => (popped && pop && !pop.closed ? pop.document : null);
+  const $ = s => document.querySelector(s) || (popDoc() ? popDoc().querySelector(s) : null);
+  const qa = s => [...document.querySelectorAll(s), ...(popDoc() ? popDoc().querySelectorAll(s) : [])];
   const el = (tag, attrs, ...kids) => { const e = document.createElement(tag); if (attrs) for (const [k, v] of Object.entries(attrs)) { if (k === 'class') e.className = v; else if (k.startsWith('on')) e.addEventListener(k.slice(2), v); else if (k === 'html') e.innerHTML = v; else e.setAttribute(k, v); } for (const k of kids) if (k != null) e.append(k); return e; };
 
   const S = {
@@ -386,7 +390,7 @@
     const members = new Set(R('location_group_stops.txt').map(r => r.location_group_id));
     const polys = (S.feed.locations && S.feed.locations.features.length) || 0;
     const nErr = S.issues.filter(i => i.level === 'error').length;
-    const goFile = (f, mode) => () => { S.file = f; S.mode = mode || 'form'; S.formIndex = 0; $('#fileSelect').value = f; document.querySelectorAll('.modes button').forEach(x => x.classList.toggle('active', x.dataset.mode === S.mode)); setTab('files'); renderEditor(); };
+    const goFile = (f, mode) => () => { S.file = f; S.mode = mode || 'form'; S.formIndex = 0; $('#fileSelect').value = f; qa('.modes button').forEach(x => x.classList.toggle('active', x.dataset.mode === S.mode)); setTab('files'); renderEditor(); };
     const steps = [
       { label: '事業者の名前・URL・電話番号を入れる', done: R('agency.txt').some(a => a.agency_name && a.agency_url && a.agency_phone), go: goFile('agency.txt') },
       { label: '運行する曜日と期間を入れる（calendar.txt）', done: R('calendar.txt').length > 0 && R('calendar.txt').every(c => c.start_date && c.end_date), go: goFile('calendar.txt') },
@@ -424,7 +428,7 @@
   function applyFix(it) {
     try { it.fix.apply(S.feed); } catch (e) { alert('修正を適用できませんでした: ' + e.message); return; }
     changed(); runValidate(); renderChanges();
-    if (document.querySelector('#tab-files.active')) renderEditor();
+    if (filesShown()) renderEditor();
     renderZones(); renderTrips(); refreshMap(false);
   }
   $('#btnFixAll').addEventListener('click', () => {
@@ -544,7 +548,7 @@
     S.file = it.file; S.mode = 'table'; S.filter = ''; S.hlRow = it.row ? it.row - 2 : null; S.hlField = it.field;
     S.page = S.hlRow == null ? 0 : Math.floor(S.hlRow / PAGE_SIZE);
     $('#fileSelect').value = S.file;
-    document.querySelectorAll('.modes button').forEach(x => x.classList.toggle('active', x.dataset.mode === 'table'));
+    qa('.modes button').forEach(x => x.classList.toggle('active', x.dataset.mode === 'table'));
     setTab('files'); renderEditor();
     if (row) showRowOnMap(it.file, row);
   }
@@ -584,8 +588,55 @@
     if (name === 'changes') renderChanges();
     if (name === 'graph') renderGraph();
     if (name === 'validate') $('#backBar').hidden = true;
+    if (name === 'files' && popDoc()) { try { pop.focus(); } catch (e) { /* 前に出せなくてもよい */ } }
     M.map.resize();
   }
+  // ファイル編集が見えているか（タブが開いている、または別ウインドウに出している）
+  function filesShown() { return !!(popDoc() || document.querySelector('#tab-files.active')); }
+
+  // ---------- ファイル編集を別ウインドウで ----------
+  // ファイル編集タブの中身（ファイルの選択・表・フォーム・テキスト）を、そのまま新しいウインドウに移す。
+  // データは元の画面と同じものを触るので、直すと元の画面の地図・検証・変更にすぐ反映される。ウインドウを閉じると中身は元のタブに戻る
+  let popNodes = null, popTimer = null;
+  function popOutEditor() {
+    if (popDoc()) { pop.focus(); return; }
+    const w = window.open('', 'gtfs-flex-editor', 'width=1280,height=820');
+    if (!w) { alert('別ウインドウを開けませんでした。ブラウザがポップアップを止めていないか確かめてください。'); return; }
+    pop = w;
+    const css = [...document.querySelectorAll('link[rel=stylesheet]')].map(l => l.href).filter(h => /css\/style\.css/.test(h))[0];
+    w.document.open();
+    w.document.write('<!doctype html><html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>ファイル編集 - GTFS-Flex 作成・検証ツール</title>' +
+      (css ? '<link rel="stylesheet" href="' + css + '">' : '') + '</head><body class="popbody"><div class="pophead"><b>ファイル編集</b><span id="popName" class="muted small"></span>' +
+      '<span class="muted small">直すと元の画面の地図・検証・変更にすぐ反映されます</span><button id="btnPopIn" class="btn small">元の画面に戻す</button></div><div id="popHost" class="pophost"></div></body></html>');
+    w.document.close();
+    const host = w.document.getElementById('popHost'), tab = document.getElementById('tab-files');
+    popNodes = [...tab.childNodes];
+    for (const n of popNodes) host.appendChild(n);
+    popped = true;
+    tab.append(el('div', { class: 'popnote', id: 'popNote' },
+      el('p', null, 'ファイル編集を別ウインドウで開いています。'),
+      el('div', { class: 'row' }, el('button', { class: 'btn small', onclick: () => { try { pop.focus(); } catch (e) { /* 前に出せなくてもよい */ } } }, 'ウインドウを前に出す'), el('button', { class: 'btn small', onclick: popInEditor }, 'この画面に戻す'))));
+    w.document.getElementById('btnPopIn').addEventListener('click', popInEditor);
+    w.addEventListener('pagehide', popInEditor);
+    w.addEventListener('keydown', e => { if (e.key === 'Escape' && e.target === w.document.body) popInEditor(); });
+    clearInterval(popTimer); popTimer = setInterval(() => { if (popped && (!pop || pop.closed)) popInEditor(); }, 700);
+    $('#btnPopOut').textContent = '元の画面に戻す';
+    renderEditor();
+    w.focus();
+  }
+  function popInEditor() {
+    if (!popped) return;
+    popped = false; clearInterval(popTimer);
+    const tab = document.getElementById('tab-files');
+    const note = document.getElementById('popNote'); if (note) note.remove();
+    for (const n of popNodes || []) tab.appendChild(n);
+    popNodes = null;
+    const w = pop; pop = null;
+    try { if (w && !w.closed) w.close(); } catch (e) { /* 閉じられなくてもよい */ }
+    const b = document.getElementById('btnPopOut'); if (b) b.textContent = '別ウインドウで開く ↗';
+    if (S.feed) renderEditor();
+  }
+  window.addEventListener('beforeunload', () => { try { if (pop && !pop.closed) pop.close(); } catch (e) { /* 閉じられなくてもよい */ } });
   document.querySelectorAll('.tabs button').forEach(b => b.addEventListener('click', () => setTab(b.dataset.tab)));
 
   // ---------- ファイル編集 ----------
@@ -599,8 +650,9 @@
     if (!names.includes(S.file)) S.file = names[0] || '';
     sel.value = S.file;
   }
+  $('#btnPopOut').addEventListener('click', () => { if (popped) popInEditor(); else popOutEditor(); });
   $('#fileSelect').addEventListener('change', e => { S.file = e.target.value; S.page = 0; S.filter = ''; S.hlRow = null; S.formIndex = 0; renderEditor(); });
-  document.querySelectorAll('.modes button').forEach(b => b.addEventListener('click', () => { S.mode = b.dataset.mode; document.querySelectorAll('.modes button').forEach(x => x.classList.toggle('active', x === b)); renderEditor(); }));
+  qa('.modes button').forEach(b => b.addEventListener('click', () => { S.mode = b.dataset.mode; qa('.modes button').forEach(x => x.classList.toggle('active', x === b)); renderEditor(); }));
   $('#btnAddFile').addEventListener('click', () => {
     if (!S.feed) return;
     const cands = SPEC.ORDER.filter(n => !S.feed.files[n]);
@@ -612,6 +664,7 @@
 
   function renderEditor() {
     const box = $('#editor'); box.innerHTML = '';
+    if (popDoc()) { const pn = popDoc().getElementById('popName'); if (pn) pn.textContent = S.name || ''; }
     if (!S.feed || !S.file) return;
     if (S.mode === 'table') renderTable(box);
     else if (S.mode === 'form') renderForm(box);
@@ -641,13 +694,15 @@
   function ensureDatalists() {
     for (const ref of ['agency.txt', 'stops.txt', 'routes.txt', 'trips.txt', 'booking_rules.txt', 'location_groups.txt', 'fare_attributes.txt', 'calendar', 'locations.geojson']) {
       const id = 'dl-' + ref.replace(/\W/g, '_');
-      let dl = document.getElementById(id); if (!dl) { dl = el('datalist', { id }); document.body.append(dl); }
-      dl.innerHTML = '';
+      const docs = [document].concat(popDoc() ? [popDoc()] : []);
+      const dls = docs.map(d => { let x = d.getElementById(id); if (!x) { x = d.createElement('datalist'); x.id = id; d.body.append(x); } x.innerHTML = ''; return x; });
+      const dl = dls[0];
       let items = [];
       if (ref === 'calendar') items = [...new Set([...G.rows(S.feed, 'calendar.txt'), ...G.rows(S.feed, 'calendar_dates.txt')].map(r => r.service_id))].map(v => [v, '']);
       else if (ref === 'locations.geojson') items = ((S.feed.locations && S.feed.locations.features) || []).map(f => [String(f.id), (f.properties || {}).stop_name || '']);
       else { const key = SPEC.FILES[ref].key; items = G.rows(S.feed, ref).map(r => [r[key], r.stop_name || r.route_long_name || r.route_short_name || r.agency_name || r.location_group_name || r.trip_headsign || '']); }
       for (const [v, lab] of items.slice(0, 2000)) dl.append(el('option', { value: v }, lab));
+      for (const x of dls.slice(1)) x.innerHTML = dl.innerHTML;
     }
   }
 
@@ -927,7 +982,7 @@
     if (S.stop === id) S.stop = null;
     if (stopPopup) { stopPopup.remove(); stopPopup = null; }
     changed(); fillFileSelect(); renderZones(); renderTrips(); refreshMap(false);
-    if (document.querySelector('#tab-files.active')) renderEditor();
+    if (filesShown()) renderEditor();
     return true;
   }
   // グループを消す。停留所との対応と、そのグループを使う便の行も消す
@@ -942,7 +997,7 @@
     if (F['stop_times.txt']) F['stop_times.txt'].rows = F['stop_times.txt'].rows.filter(r => r.location_group_id !== gid);
     if (S.group === gid) S.group = '';
     changed(); fillFileSelect(); renderZones(); renderTrips(); refreshMap(false);
-    if (document.querySelector('#tab-files.active')) renderEditor();
+    if (filesShown()) renderEditor();
     return true;
   }
   // 区域ポリゴンを消す。その区域を使う便の行も消す
@@ -956,7 +1011,7 @@
     const F = S.feed.files; if (F['stop_times.txt']) F['stop_times.txt'].rows = F['stop_times.txt'].rows.filter(r => String(r.location_id) !== lid);
     S.loc = Math.min(S.loc, S.feed.locations.features.length - 1);
     changed(); fillFileSelect(); renderZones(); renderTrips(); refreshMap(false);
-    if (document.querySelector('#tab-files.active')) renderEditor();
+    if (filesShown()) renderEditor();
     return true;
   }
   // 停留所を選ぶ。地図のクリック、「停留所を探す」、表からの移動で共通に使う
@@ -1042,7 +1097,7 @@
     if (groups.length > 4) box.append(el('div', { class: 'small muted' }, `ほかに指摘 ${groups.slice(4).reduce((a, g) => a + g.length, 0)} 件（検証タブで）`));
     box.append(el('div', { class: 'row' },
       el('button', { class: 'btn small', onclick: () => { S.loc = i; setTab('zones'); renderZones(); $('#locForm').scrollIntoView({ block: 'center' }); } }, '編集'),
-      rows.length ? el('button', { class: 'btn small', onclick: () => { S.file = 'stop_times.txt'; S.mode = 'table'; S.filter = id; S.page = 0; S.hlRow = null; $('#fileSelect').value = S.file; document.querySelectorAll('.modes button').forEach(x => x.classList.toggle('active', x.dataset.mode === 'table')); setTab('files'); renderEditor(); } }, '便の行を見る') : null,
+      rows.length ? el('button', { class: 'btn small', onclick: () => { S.file = 'stop_times.txt'; S.mode = 'table'; S.filter = id; S.page = 0; S.hlRow = null; $('#fileSelect').value = S.file; qa('.modes button').forEach(x => x.classList.toggle('active', x.dataset.mode === 'table')); setTab('files'); renderEditor(); } }, '便の行を見る') : null,
       el('button', { class: 'btn small danger', onclick: () => { if (deleteLocation(i)) closeLocPopup(); } }, '消す')));
     return box;
   }
@@ -1075,7 +1130,7 @@
       ...((S.stopIssueList && S.stopIssueList.get(r.stop_id)) || []).slice(0, 4).map(popupIssue),
       el('div', { class: 'row' },
         el('button', { class: 'btn small', onclick: () => { setTab('zones'); renderStopForm(); $('#stopForm').scrollIntoView({ block: 'center' }); } }, '編集'),
-        el('button', { class: 'btn small', onclick: () => { S.file = 'stops.txt'; S.mode = 'table'; S.filter = r.stop_id; S.page = 0; S.hlRow = null; $('#fileSelect').value = S.file; document.querySelectorAll('.modes button').forEach(x => x.classList.toggle('active', x.dataset.mode === 'table')); setTab('files'); renderEditor(); } }, '表で見る'),
+        el('button', { class: 'btn small', onclick: () => { S.file = 'stops.txt'; S.mode = 'table'; S.filter = r.stop_id; S.page = 0; S.hlRow = null; $('#fileSelect').value = S.file; qa('.modes button').forEach(x => x.classList.toggle('active', x.dataset.mode === 'table')); setTab('files'); renderEditor(); } }, '表で見る'),
         el('button', { class: 'btn small danger', onclick: () => deleteStop(r.stop_id) }, '消す')));
   }
   $('#stopFind').addEventListener('change', e => {
@@ -1211,7 +1266,7 @@
     const f = d.files[S.diffFile]; if (!f) return;
     const isGeo = S.diffFile === 'locations.geojson';
     const jump = (index) => { if (isGeo) { S.loc = index; setTab('zones'); renderZones(); refreshMap(); } else { S.file = S.diffFile; S.mode = 'table'; S.filter = ''; S.hlRow = index; S.hlField = null; S.page = Math.floor(index / PAGE_SIZE); $('#fileSelect').value = S.file; setTab('files'); renderEditor(); } };
-    const after = () => { changed(); runValidate(); renderChanges(); renderZones(); renderTrips(); refreshMap(false); if (document.querySelector('#tab-files.active')) renderEditor(); };
+    const after = () => { changed(); runValidate(); renderChanges(); renderZones(); renderTrips(); refreshMap(false); if (filesShown()) renderEditor(); };
     const addItem = (cls, title, changes, ops) => {
       const div = el('div', null, el('b', null, title));
       if (Array.isArray(changes) && changes.length) div.append(el('div', { class: 'chg' }, changes.map(c => `${c.col}: "${c.from}" → "${c.to}"`).join('　')));
@@ -1235,7 +1290,7 @@
     if (!S.feed.files[file]) G.ensureTable(S.feed, file);
     S.file = file; S.mode = 'table'; S.filter = ''; S.hlRow = row == null ? null : row; S.hlField = col || null;
     S.page = row == null ? 0 : Math.floor(row / PAGE_SIZE);
-    fillFileSelect(); $('#fileSelect').value = file; document.querySelectorAll('.modes button').forEach(x => x.classList.toggle('active', x.dataset.mode === 'table'));
+    fillFileSelect(); $('#fileSelect').value = file; qa('.modes button').forEach(x => x.classList.toggle('active', x.dataset.mode === 'table'));
     setTab('files'); renderEditor();
     const r = row != null && S.feed.files[file] ? S.feed.files[file].rows[row] : null; if (r) showRowOnMap(file, r);
   }
@@ -1314,7 +1369,7 @@
   function ccw(ring) { let a = 0; for (let i = 0; i < ring.length - 1; i++) a += ring[i][0] * ring[i + 1][1] - ring[i + 1][0] * ring[i][1]; return a < 0 ? ring.slice().reverse() : ring; }
 
   // 開発者ツールから触れるように（デバッグ用）
-  window.FlexApp = { S, M, refreshMap, runValidate, selectStop, loadFeed, renderZones, renderTrips, renderEditor, renderChanges, setTab, renderGraph, openRow, mapView: () => lastView };
+  window.FlexApp = { S, M, refreshMap, runValidate, selectStop, loadFeed, renderZones, renderTrips, renderEditor, renderChanges, setTab, renderGraph, openRow, mapView: () => lastView, popOutEditor, popInEditor, editorWindow: () => popDoc() && pop };
 
   // ---------- 起動: 前回の続き ----------
   (async () => {

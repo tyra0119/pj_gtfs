@@ -63,6 +63,16 @@ input:invalid { border-color: var(--err); }
 .note { font-size: 12px; color: var(--muted); }
 /* ファイル編集 */
 .filebar { display: flex; gap: 6px; align-items: center; margin-bottom: 6px; flex-wrap: wrap; }
+/* ファイル編集を別ウインドウに出したとき: 見出しの帯の下に、ファイルの選択と表をウインドウいっぱいに */
+.popbody { margin: 0; height: 100vh; display: flex; flex-direction: column; background: var(--bg); }
+.pophead { display: flex; align-items: center; gap: 12px; padding: 8px 12px; background: var(--panel); border-bottom: 1px solid var(--line); flex-wrap: wrap; }
+.pophead #btnPopIn { margin-left: auto; }
+.pophost #btnPopOut { display: none; } /* 別ウインドウでは見出しの「元の画面に戻す」だけにする */
+.pophost { flex: 1; min-height: 0; display: flex; flex-direction: column; padding: 8px 12px; }
+.pophost #editor { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.pophost .tablewrap { flex: 1; }
+.popnote { display: flex; flex-direction: column; gap: 8px; padding: 16px; margin-top: 8px; border: 1px dashed var(--line); border-radius: 8px; background: var(--panel); }
+.popnote .row { display: flex; gap: 8px; }
 .modes button { padding: 3px 8px; border: 1px solid var(--line); background: #fff; cursor: pointer; font: inherit; }
 .modes button:first-child { border-radius: 6px 0 0 6px; }
 .modes button:last-child { border-radius: 0 6px 6px 0; }
