@@ -180,3 +180,38 @@ table.grid th .coldel:hover { color: var(--err); }
 .groups .chip { display: inline-flex; align-items: center; gap: 2px; background: #fde2e2; color: #8a1c1c; border-radius: 10px; padding: 1px 6px 1px 8px; }
 .groups .chip button { border: 0; background: transparent; color: #a33; cursor: pointer; font-size: 11px; padding: 0 2px; }
 .steps li.current { background: #fff5d6; }
+
+/* つながり（図） */
+.graph { width: 100%; height: auto; max-height: 62vh; display: block; margin: 4px 0; }
+.graph .node rect { fill: #fff; stroke: #2a9d4a; stroke-width: 1.5; }
+.graph .node.missing rect { fill: #fdecec; stroke: #d33; stroke-dasharray: 5 3; stroke-width: 2; }
+.graph .node.empty rect { fill: #f6f6f6; stroke: #bbb; stroke-dasharray: 4 3; }
+.graph .node { cursor: pointer; }
+.graph .node:hover rect, .graph .node:focus rect { stroke-width: 3; }
+.graph .nlabel { font-size: 16px; font-weight: 600; fill: #1f2937; }
+.graph .nfile { font-size: 11.5px; fill: #6b7280; }
+.graph .node.missing .nfile { fill: #b71c1c; }
+.graph .ubadge { fill: #f39c12; stroke: #fff; stroke-width: 1.5; }
+.graph .ubtext { font-size: 11px; fill: #fff; font-weight: 700; }
+.graph .edge line { stroke: #2a9d4a; stroke-width: 2; }
+.graph .edge line.hit { stroke: transparent; stroke-width: 14; }
+.graph .edge.bad line:not(.hit) { stroke: #d33; stroke-width: 3; }
+.graph .edge.none line:not(.hit) { stroke: #aaa; stroke-dasharray: 4 3; }
+.graph .edge { cursor: pointer; }
+.graph .edge .tag { fill: #fff; stroke: #2a9d4a; }
+.graph .edge.bad .tag { fill: #d33; stroke: #d33; }
+.graph .edge.none .tag { stroke: #aaa; }
+.graph .edge text { font-size: 13px; fill: #1f2937; }
+.graph .edge.bad text { fill: #fff; font-weight: 700; }
+.gl { font-weight: 600; } .gl.ok { color: #2a9d4a; } .gl.bad { color: #d33; } .gl.warn { color: #d78a00; }
+.badge.bad { background: var(--err); }
+.graphinfo { font-size: 13px; }
+.graphinfo .box { background: #f0f4fa; border-radius: 6px; padding: 8px 10px; margin: 6px 0; }
+.graphinfo ul { margin: 4px 0; padding-left: 0; list-style: none; max-height: 200px; overflow: auto; }
+.graphinfo li { display: flex; gap: 6px; align-items: center; padding: 2px 0; border-bottom: 1px dashed #eee; }
+.graphinfo li span { flex: 1; }
+.trace { list-style: none; padding: 0; margin: 4px 0; font-size: 13px; }
+.trace li { display: flex; gap: 6px; align-items: flex-start; padding: 4px 6px; border-left: 4px solid #2a9d4a; margin-bottom: 3px; background: #fafafa; }
+.trace li.bad { border-color: #d33; background: #fdecec; }
+.trace li b { min-width: 70px; }
+.trace li span { flex: 1; }

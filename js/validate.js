@@ -81,7 +81,7 @@
   const RULES = [
     {
       id: 'spec', label: '仕様どおりか（必須ファイル・必須列・ID 重複・型・参照）', run(c) {
-        const { F, R, has, err, warn, info } = c;
+        const { F, R, has, err, warn, info, delRow, setVal } = c;
         for (const [name, spec] of Object.entries(FILES)) {
           if (spec.presence === 'required' && !has(name)) err(name, null, '', `${name}（${spec.label}）がない、または行がない`, 'missing_file');
         }
@@ -172,7 +172,7 @@
             if (!r.stop_lat || !r.stop_lon) err('stops.txt', i, 'stop_lat', '緯度経度が空', 'cond_required');
             else {
               const lat = parseFloat(r.stop_lat), lon = parseFloat(r.stop_lon);
-              if (!isNaN(lat) && !isNaN(lon) && Math.abs(lat) <= 90 && Math.abs(lon) <= 180 && !(lat >= JP.latMin && lat <= JP.latMax && lon >= JP.lonMin && lon <= JP.lonMax)) {
+              if (!isNaN(lat) && !isNaN(lon) && Math.abs(lon) <= 180 && !(lat >= JP.latMin && lat <= JP.latMax && lon >= JP.lonMin && lon <= JP.lonMax)) {
                 const swapped = lon >= JP.latMin && lon <= JP.latMax && lat >= JP.lonMin && lat <= JP.lonMax;
                 warn('stops.txt', i, 'stop_lat', `日本の範囲外の座標（${lat}, ${lon}）。緯度と経度が逆になっていないか`, 'coord_outside_japan', swapped ? { label: '緯度と経度を入れ替える', safe: true, apply: () => { const a = r.stop_lat; r.stop_lat = r.stop_lon; r.stop_lon = a; } } : null);
               }

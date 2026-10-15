@@ -238,6 +238,7 @@
     renderIssues();
     renderSteps();
     collectStopIssues();
+    renderGraph();
     if (M.map.getSource('stops')) stopFeatures();
     if (S.mode === 'table') markBadCells();
   }
@@ -356,6 +357,7 @@
   $('#btnBack').addEventListener('click', () => {
     const b = S.backTo; if (!b) return;
     setTab('validate');
+    if (b.kind === 'graph') { setTab('graph'); $('#backBar').hidden = true; return; }
     if (b.kind === 'steps') {
       const box = $('#stepsBox'); box.open = true; box.scrollIntoView({ block: 'start' });
       const li = [...$('#steps').querySelectorAll('li')].find(x => x.textContent.includes(b.label)); if (li) { li.classList.add('current'); setTimeout(() => li.classList.remove('current'), 2000); }
@@ -373,6 +375,7 @@
     document.querySelectorAll('.tab').forEach(t => t.classList.toggle('active', t.id === 'tab-' + name));
     if (name !== 'zones') M.setMode('none');
     if (name === 'changes') renderChanges();
+    if (name === 'graph') renderGraph();
     if (name === 'validate') $('#backBar').hidden = true;
     M.map.resize();
   }
@@ -886,6 +889,66 @@
     if (more > 0) box.append(el('div', { class: 'muted small' }, `…ほか ${more} 件`));
   }
 
+  // ---------- つながり（図） ----------
+  function openRow(file, row, col, from) {
+    if (from) { S.backTo = { kind: from }; $('#btnBack').textContent = '← つながりに戻る'; $('#backInfo').textContent = `${file}${row != null ? ' ' + (row + 2) + ' 行目' : ''}`; $('#backBar').hidden = false; }
+    if (file === 'locations.geojson') { if (row != null) S.loc = row; setTab('zones'); renderZones(); refreshMap(false); const f = S.feed.locations && S.feed.locations.features[S.loc]; if (f) M.fitTo([f]); return; }
+    if (!S.feed.files[file]) G.ensureTable(S.feed, file);
+    S.file = file; S.mode = 'table'; S.filter = ''; S.hlRow = row == null ? null : row; S.hlField = col || null;
+    S.page = row == null ? 0 : Math.floor(row / PAGE_SIZE);
+    fillFileSelect(); $('#fileSelect').value = file; document.querySelectorAll('.modes button').forEach(x => x.classList.toggle('active', x.dataset.mode === 'table'));
+    setTab('files'); renderEditor();
+    const r = row != null && S.feed.files[file] ? S.feed.files[file].rows[row] : null; if (r) showRowOnMap(file, r);
+  }
+  function renderGraph() {
+    if (!S.feed) { $('#graphBox').innerHTML = '<p class="muted">データを読み込むと表示されます。</p>'; return; }
+    const a = window.FlexGraph.analyze(S.feed);
+    $('#graphBadge').textContent = a.broken ? String(a.broken) : '';
+    if (!document.querySelector('#tab-graph.active')) return;
+    const info = $('#graphInfo');
+    window.FlexGraph.render($('#graphBox'), a, {
+      onNode(n) {
+        info.innerHTML = '';
+        const box = el('div', { class: 'box' }, el('b', null, `${n.label}（${n.file}）`));
+        if (!n.exists) box.append(el('div', null, n.required ? 'まだない表です（必須）。作ると経路検索が読めるデータになります。' : 'この表はありません（任意）。使うときだけ作ります。'));
+        else box.append(el('div', null, `${n.rows} 行`));
+        const ins = a.edges.filter(e => e.to === n.id && e.refs), outs = a.edges.filter(e => e.from === n.id && e.refs);
+        if (outs.length) box.append(el('div', { class: 'muted small' }, '指している先: ' + outs.map(e => `${e.cols.join('・')} → ${a.nodes.find(x => x.id === e.to).label}`).join('、')));
+        if (ins.length) box.append(el('div', { class: 'muted small' }, '指されている元: ' + ins.map(e => `${a.nodes.find(x => x.id === e.from).label} の ${e.cols.join('・')}`).join('、')));
+        if (n.unused) box.append(el('div', { class: 'small' }, `${n.unusedLabel}: ${n.unused} 件（検証の「使われていないもの」に一覧があります）`));
+        const btn = n.id === 'locations' ? '区域・停留所で開く' : n.exists ? '表を開く' : '表を作って開く';
+        box.append(el('div', { class: 'row' }, el('button', { class: 'btn small', onclick: () => openRow(n.id === 'calendar' && !S.feed.files['calendar.txt'] && S.feed.files['calendar_dates.txt'] ? 'calendar_dates.txt' : n.file, null, null, 'graph') }, btn)));
+        info.append(box);
+      },
+      onEdge(e) {
+        info.innerHTML = '';
+        const from = a.nodes.find(x => x.id === e.from), to = a.nodes.find(x => x.id === e.to);
+        const box = el('div', { class: 'box' }, el('b', null, `${from.label} の ${e.cols.join('・')} → ${to.label}`), el('div', null, `指している行 ${e.refs} 件${e.broken.length ? `、そのうち指す先がない行 ${e.broken.length} 件` : '。すべてつながっています。'}`));
+        if (e.broken.length) {
+          box.append(el('div', { class: 'small' }, `直し方: 行へ移って ${e.cols.join('・')} を ${to.label}（${to.file}）にある ID に直すか、${to.label} にその ID の行を作ります。`));
+          const ul = el('ul');
+          for (const b of e.broken.slice(0, 200)) ul.append(el('li', null, el('span', null, `${from.file} ${b.row + 2} 行目: ${b.col} = "${b.value}"`), el('button', { class: 'btn small', onclick: () => openRow(from.file, b.row, b.col, 'graph') }, '行へ')));
+          if (e.broken.length > 200) ul.append(el('li', { class: 'muted' }, `…ほか ${e.broken.length - 200} 件`));
+          box.append(ul);
+        }
+        info.append(box);
+      },
+    });
+    const sel = $('#traceSelect'); const cur = sel.value; sel.innerHTML = '';
+    const trips = G.rows(S.feed, 'trips.txt');
+    if (!trips.length) sel.append(el('option', { value: '' }, '便がありません（「便を追加」で作ります）'));
+    for (const t of trips.slice(0, 1000)) sel.append(el('option', { value: t.trip_id }, `${t.trip_id}${t.trip_headsign ? '（' + t.trip_headsign + '）' : ''}`));
+    if (trips.some(t => t.trip_id === cur)) sel.value = cur;
+    renderTrace();
+  }
+  function renderTrace() {
+    const ul = $('#traceList'); ul.innerHTML = ''; const id = $('#traceSelect').value; if (!id || !S.feed) return;
+    for (const s of window.FlexGraph.traceTrip(S.feed, id)) {
+      ul.append(el('li', { class: s.ok ? '' : 'bad' }, el('b', null, (s.ok ? '✔ ' : '✖ ') + s.label), el('span', null, s.text), s.file ? el('button', { class: 'btn small', onclick: () => openRow(s.file, s.row, s.col, 'graph') }, '行へ') : null));
+    }
+  }
+  $('#traceSelect').addEventListener('change', renderTrace);
+
   // ---------- 小物 ----------
   // 必須の印: * は必須、※ は条件付きで必須（状況によって必須になる。検証で指摘する）
   function reqMark(fd) {
@@ -901,7 +964,7 @@
   function ccw(ring) { let a = 0; for (let i = 0; i < ring.length - 1; i++) a += ring[i][0] * ring[i + 1][1] - ring[i + 1][0] * ring[i][1]; return a < 0 ? ring.slice().reverse() : ring; }
 
   // 開発者ツールから触れるように（デバッグ用）
-  window.FlexApp = { S, M, refreshMap, runValidate, selectStop, loadFeed, renderZones, renderTrips, renderEditor, renderChanges, setTab };
+  window.FlexApp = { S, M, refreshMap, runValidate, selectStop, loadFeed, renderZones, renderTrips, renderEditor, renderChanges, setTab, renderGraph, openRow };
 
   // ---------- 起動: 前回の続き ----------
   (async () => {
