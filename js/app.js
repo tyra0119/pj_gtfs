@@ -494,7 +494,7 @@
     const inputs = {};
     for (const c of cols) {
       const fd = SPEC.field(S.file, c);
-      form.append(el('label', { title: c + (reqTitle(fd) ? '\n' + reqTitle(fd) : '') }, (fd ? fd.label : c) + ' ', el('small', { class: 'muted' }, c), reqMark(fd)));
+      form.append(el('label', { title: c + (reqTitle(fd) ? '　' + reqTitle(fd) : '') }, (fd ? fd.label : c) + ' ', el('small', { class: 'muted' }, c), reqMark(fd)));
       inputs[c] = cellInput(S.file, c, r, () => { refreshMap(false); if (S.file === 'booking_rules.txt') applyBookingEnable(); });
       form.append(inputs[c]);
       if (fd && fd.help) form.append(el('div', { class: 'help' }, fd.help));
@@ -723,10 +723,23 @@
     if (M.getMode() === 'addStop' && !r) { box.append(el('div', { class: 'hint' }, '新規追加: 地図をクリックすると、その場所に停留所を作ります。作ったあと、ここで名前などを直せます。')); return; }
     if (!r) { box.append(el('div', { class: 'muted' }, '停留所が選ばれていません（地図の停留所をクリックするか、「停留所を探す」で選びます）')); return; }
     box.append(el('div', { class: 'formtitle' }, `編集中: ${r.stop_id}${r.stop_name ? '　' + r.stop_name : ''}`));
-    for (const c of ['stop_id', 'stop_name', 'stop_code', 'stop_lat', 'stop_lon', 'stop_desc']) {
+    ensureDatalists();
+    // 主な欄（location_type は GTFS-JP v4 で必須なのでここに入れる）。残りは「その他の欄を表示」で
+    const main = ['stop_id', 'stop_name', 'stop_code', 'stop_lat', 'stop_lon', 'location_type', 'stop_desc'];
+    const header = (S.feed.files['stops.txt'] || { header: [] }).header;
+    const rest = header.filter(c => c && !main.includes(c));
+    const addField = c => {
       const inp = cellInput('stops.txt', c, r, () => { refreshMap(false); renderStopForm(); });
       inp.dataset.col = c;
-      box.append(el('label', { title: reqTitle(SPEC.field('stops.txt', c)) }, SPEC.label('stops.txt', c) + ' ', el('small', { class: 'muted' }, c), reqMark(SPEC.field('stops.txt', c))), inp);
+      const fd = SPEC.field('stops.txt', c);
+      box.append(el('label', { title: c + (reqTitle(fd) ? '　' + reqTitle(fd) : '') }, (fd ? fd.label : c) + ' ', el('small', { class: 'muted' }, c), reqMark(fd)), inp);
+      if (fd && fd.help) box.append(el('div', { class: 'help' }, fd.help));
+    };
+    for (const c of main) if (header.includes(c) || main.includes(c)) addField(c);
+    if (rest.length) {
+      const tog = el('button', { class: 'btn small', onclick: () => { S.stopFormAll = !S.stopFormAll; renderStopForm(); } }, S.stopFormAll ? `その他の欄を隠す（${rest.length}）` : `その他の欄を表示（${rest.length}）`);
+      box.append(el('label', null, ''), tog);
+      if (S.stopFormAll) for (const c of rest) addField(c);
     }
     if (S.group) {
       const inG = memberSet(S.group).has(r.stop_id);
