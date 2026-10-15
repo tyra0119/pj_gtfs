@@ -128,6 +128,7 @@
     return saved;
   }
   let validateTimer = null;
+  function validateNow() { clearTimeout(validateTimer); runValidate(); renderChanges(); }
   function changed() {
     S.dirty = true;
     $('#saveStatus').textContent = '自動保存: 変更あり…';
@@ -239,6 +240,7 @@
     renderSteps();
     collectStopIssues();
     renderGraph();
+    refreshPopup();
     if (M.map.getSource('stops')) stopFeatures();
     if (S.mode === 'table') markBadCells();
   }
@@ -408,7 +410,7 @@
     else renderText(box);
   }
 
-  function cellInput(file, col, row, onchange) {
+  function cellInput(file, col, row, onchange, oninput) {
     const fd = SPEC.field(file, col);
     let inp;
     if (fd && fd.type === 'enum') {
@@ -423,7 +425,9 @@
       inp = el('input', fd && (fd.type === 'int' || fd.type === 'float' || fd.type === 'lat' || fd.type === 'lon') ? { inputmode: 'decimal' } : {});
       inp.value = row[col] || '';
     }
-    inp.addEventListener('change', () => { row[col] = inp.value.trim(); onchange && onchange(); changed(); });
+    // 打つたびにデータへ入れる（地図などはその場で描き直す）。欄から出たら、すぐ検証して印と吹き出しを新しくする
+    inp.addEventListener('input', () => { row[col] = inp.value.trim(); if (oninput) oninput(); changed(); });
+    inp.addEventListener('change', () => { row[col] = inp.value.trim(); onchange && onchange(); changed(); validateNow(); });
     return inp;
   }
   function ensureDatalists() {
@@ -489,7 +493,8 @@
       const pick = () => { tbody.querySelectorAll('tr.cur').forEach(x => x.classList.remove('cur')); tr.classList.add('cur'); showRowOnMap(S.file, r); };
       tr.addEventListener('focusin', pick); tr.addEventListener('click', pick);
       tr.append(el('td', { class: 'rownum' }, String(i + 2)));
-      for (const c of cols) tr.append(el('td', { 'data-col': c }, cellInput(S.file, c, r, () => { if (S.file === 'stops.txt' || S.file === 'location_group_stops.txt' || S.file === 'location_groups.txt') refreshMap(false); })));
+      const mapFile = S.file === 'stops.txt' || S.file === 'location_group_stops.txt' || S.file === 'location_groups.txt';
+      for (const c of cols) tr.append(el('td', { 'data-col': c }, cellInput(S.file, c, r, () => { if (mapFile) refreshMap(false); }, mapFile ? () => { refreshMap(false); refreshPopup(); } : null)));
       tr.append(el('td', { class: 'del' }, el('button', { title: 'この行を消す', onclick: () => {
         if (S.file === 'stops.txt') { deleteStop(r.stop_id); return; }
         if (S.file === 'location_groups.txt') { deleteGroup(r.location_group_id); return; }
@@ -730,7 +735,20 @@
     if (!r || isNaN(+r.stop_lat) || isNaN(+r.stop_lon)) return;
     if (o.center) M.map.easeTo({ center: [+r.stop_lon, +r.stop_lat], zoom: Math.max(M.map.getZoom(), 15) });
     if (!o.popup) return;
-    const div = el('div', { class: 'stop-popup' },
+    stopPopup = new maplibregl.Popup({ offset: 12, maxWidth: '300px', focusAfterOpen: false }).setLngLat([+r.stop_lon, +r.stop_lat]).setDOMContent(stopPopupContent(r)).addTo(M.map);
+    stopPopup._sid = r.stop_id;
+  }
+  // 開いている吹き出しを、今のデータと検証結果で描き直す（位置も合わせる）
+  function refreshPopup() {
+    if (!stopPopup || !stopPopup.isOpen()) return;
+    const r = G.rows(S.feed, 'stops.txt').find(x => x.stop_id === stopPopup._sid) || (S.stop && G.rows(S.feed, 'stops.txt').find(x => x.stop_id === S.stop));
+    if (!r) { stopPopup.remove(); stopPopup = null; return; }
+    stopPopup._sid = r.stop_id;
+    if (!isNaN(+r.stop_lat) && !isNaN(+r.stop_lon) && r.stop_lat !== '' && r.stop_lon !== '') stopPopup.setLngLat([+r.stop_lon, +r.stop_lat]);
+    stopPopup.setDOMContent(stopPopupContent(r));
+  }
+  function stopPopupContent(r) {
+    return el('div', { class: 'stop-popup' },
       el('b', null, r.stop_name || '(名前なし)'),
       el('div', { class: 'muted small' }, `stop_id ${r.stop_id}${r.stop_code ? '　番号 ' + r.stop_code : ''}`),
       el('div', { class: 'muted small' }, `${r.stop_lat}, ${r.stop_lon}`),
@@ -740,7 +758,6 @@
         el('button', { class: 'btn small', onclick: () => { setTab('zones'); renderStopForm(); $('#stopForm').scrollIntoView({ block: 'center' }); } }, '編集'),
         el('button', { class: 'btn small', onclick: () => { S.file = 'stops.txt'; S.mode = 'table'; S.filter = r.stop_id; S.page = 0; S.hlRow = null; $('#fileSelect').value = S.file; document.querySelectorAll('.modes button').forEach(x => x.classList.toggle('active', x.dataset.mode === 'table')); setTab('files'); renderEditor(); } }, '表で見る'),
         el('button', { class: 'btn small danger', onclick: () => deleteStop(r.stop_id) }, '消す')));
-    stopPopup = new maplibregl.Popup({ offset: 12, maxWidth: '300px' }).setLngLat([+r.stop_lon, +r.stop_lat]).setDOMContent(div).addTo(M.map);
   }
   $('#stopFind').addEventListener('change', e => {
     if (!S.feed) return;
@@ -782,7 +799,7 @@
     const header = (S.feed.files['stops.txt'] || { header: [] }).header;
     const rest = header.filter(c => c && !main.includes(c));
     const addField = c => {
-      const inp = cellInput('stops.txt', c, r, () => { refreshMap(false); renderStopForm(); });
+      const inp = cellInput('stops.txt', c, r, () => { refreshMap(false); renderStopForm(); }, () => { refreshMap(false); refreshPopup(); });
       inp.dataset.col = c;
       const fd = SPEC.field('stops.txt', c);
       box.append(el('label', { title: c + (reqTitle(fd) ? '　' + reqTitle(fd) : '') }, (fd ? fd.label : c) + ' ', el('small', { class: 'muted' }, c), reqMark(fd)), inp);

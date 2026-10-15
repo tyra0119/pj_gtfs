@@ -128,7 +128,11 @@
       let split = 0;
       for (const [, list] of byTrip) {
         if (list.length !== 1 || !isZone(list[0])) continue;
-        const a = list[0], b = Object.assign({}, a, { stop_sequence: String((+a.stop_sequence || 0) + 1) });
+        // GTFS-JP ガイドラインの形: 乗る行（乗車は元のまま・降車不可）と降りる行（乗車不可・降車は元のまま）
+        const a = list[0], b = Object.assign({}, a, { stop_sequence: String((+a.stop_sequence || 0) + 1), pickup_type: '1', pickup_booking_rule_id: '' });
+        a.drop_off_type = '1'; a.drop_off_booking_rule_id = '';
+        if (b.drop_off_type === '1' || b.drop_off_type === '') b.drop_off_type = a.pickup_type === '2' ? '2' : b.drop_off_type;
+        if (!b.drop_off_booking_rule_id) b.drop_off_booking_rule_id = list[0].pickup_booking_rule_id || '';
         st.rows.splice(st.rows.indexOf(a) + 1, 0, b); split++;
       }
       if (split) notes.push(`区域の行が 1 つだけの便 ${split} 本を、同じ区域の行 2 つ（乗る行・降りる行）にした`);
