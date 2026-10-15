@@ -258,6 +258,7 @@
   function validateNow() { clearTimeout(validateTimer); runValidate(); renderChanges(); }
   function changed() {
     S.dirty = true;
+    noteChange();
     $('#saveStatus').textContent = '自動保存: 変更あり…';
     saver.schedule();
     clearTimeout(validateTimer);
@@ -294,7 +295,80 @@
     // map.loaded() はタイル待ちでも false になるので、層ができているかで判断する
     if (M.map.getSource('stops')) refreshMap(true); else M.map.once('load', () => refreshMap(true));
     saver.schedule();
+    resetUndo(); // 別のデータを開いたら、元に戻す・やり直すの履歴は空にする
   }
+
+  // ---------- 元に戻す・やり直す ----------
+  // 編集が止まって 0.6 秒たったら、その前の状態を 1 段として覚える（表のセルに続けて打った文字は 1 段にまとまる）。
+  // 状態はファイルごとの JSON 文字列。変わらなかったファイルは前の段と同じ文字列を使うので、大きなデータでもメモリを食いすぎない
+  const UNDO_MAX = 50, UNDO_WAIT = 600;
+  let undoStack = [], redoStack = [], undoBase = null, undoTimer = null, restoring = false;
+  function snapFeed(prev) {
+    const files = {};
+    for (const [n, t] of Object.entries(S.feed.files)) { const j = JSON.stringify(t); files[n] = prev && prev.files[n] === j ? prev.files[n] : j; }
+    const loc = S.feed.locations ? JSON.stringify(S.feed.locations) : null;
+    return { files, loc: prev && prev.loc === loc ? prev.loc : loc };
+  }
+  function diffLabel(a, b) {
+    const names = [...new Set([...Object.keys(a.files), ...Object.keys(b.files)])].filter(n => a.files[n] !== b.files[n]);
+    if (a.loc !== b.loc) names.push('locations.geojson');
+    return names;
+  }
+  function resetUndo() { clearTimeout(undoTimer); undoTimer = null; undoStack = []; redoStack = []; undoBase = S.feed ? snapFeed(null) : null; updateUndoUI(); }
+  function noteChange() { if (restoring || !S.feed) return; clearTimeout(undoTimer); undoTimer = setTimeout(commitUndo, UNDO_WAIT); updateUndoUI(); }
+  function commitUndo() {
+    clearTimeout(undoTimer); undoTimer = null;
+    if (!S.feed || !undoBase) return;
+    const now = snapFeed(undoBase); const names = diffLabel(undoBase, now);
+    if (names.length) { undoStack.push({ snap: undoBase, label: names.join('・') }); if (undoStack.length > UNDO_MAX) undoStack.shift(); redoStack = []; undoBase = now; }
+    updateUndoUI();
+  }
+  function restoreSnap(snap) {
+    restoring = true;
+    try {
+      const files = {}; for (const [n, j] of Object.entries(snap.files)) files[n] = JSON.parse(j);
+      S.feed.files = files; S.feed.locations = snap.loc ? JSON.parse(snap.loc) : null;
+      if (S.stop && !G.rows(S.feed, 'stops.txt').some(r => r.stop_id === S.stop)) S.stop = null;
+      closePopups(); S.hlRow = null;
+      fillFileSelect(); renderEditor(); renderZones(); renderTrips(); refreshMap(false); runValidate(); renderChanges();
+    } finally { restoring = false; }
+    S.dirty = true; saver.schedule();
+  }
+  function undo() {
+    if (undoTimer) commitUndo();
+    const e = undoStack.pop(); if (!e) return false;
+    redoStack.push({ snap: undoBase, label: e.label });
+    restoreSnap(e.snap); undoBase = e.snap;
+    $('#saveStatus').textContent = '元に戻しました: ' + e.label;
+    updateUndoUI(); return true;
+  }
+  function redo() {
+    if (undoTimer) commitUndo();
+    const e = redoStack.pop(); if (!e) return false;
+    undoStack.push({ snap: undoBase, label: e.label });
+    restoreSnap(e.snap); undoBase = e.snap;
+    $('#saveStatus').textContent = 'やり直しました: ' + e.label;
+    updateUndoUI(); return true;
+  }
+  function updateUndoUI() {
+    const u = document.getElementById('btnUndo'), r = document.getElementById('btnRedo'); if (!u || !r) return;
+    const top = undoStack[undoStack.length - 1];
+    u.disabled = !(undoTimer || top); r.disabled = !redoStack.length;
+    u.title = undoTimer ? '直前の編集を元に戻す（Ctrl+Z）' : top ? `元に戻す: ${top.label}（Ctrl+Z）` : '元に戻す編集はありません';
+    r.title = redoStack.length ? `やり直す: ${redoStack[redoStack.length - 1].label}（Ctrl+Y）` : 'やり直す編集はありません';
+  }
+  document.getElementById('btnUndo').addEventListener('click', undo);
+  document.getElementById('btnRedo').addEventListener('click', redo);
+  // Ctrl+Z / Ctrl+Y（Ctrl+Shift+Z）。入力欄の中では、ふだんの文字の取り消しに任せる。別ウインドウのファイル編集でも効く
+  function undoKeys(e) {
+    if (!(e.ctrlKey || e.metaKey) || e.altKey) return;
+    const t = e.target, tag = t && t.tagName;
+    if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || (t && t.isContentEditable)) return;
+    const k = e.key.toLowerCase();
+    if (k === 'z' && !e.shiftKey) { if (undo()) e.preventDefault(); }
+    else if (k === 'y' || (k === 'z' && e.shiftKey)) { if (redo()) e.preventDefault(); }
+  }
+  document.addEventListener('keydown', undoKeys);
   $('#fileInput').addEventListener('change', async e => {
     const f = e.target.files[0]; if (!f) return;
     try {
@@ -619,6 +693,7 @@
     w.document.getElementById('btnPopIn').addEventListener('click', popInEditor);
     w.addEventListener('pagehide', popInEditor);
     w.addEventListener('keydown', e => { if (e.key === 'Escape' && e.target === w.document.body) popInEditor(); });
+    w.document.addEventListener('keydown', undoKeys);
     clearInterval(popTimer); popTimer = setInterval(() => { if (popped && (!pop || pop.closed)) popInEditor(); }, 700);
     $('#btnPopOut').textContent = '元の画面に戻す';
     renderEditor();
@@ -1369,7 +1444,7 @@
   function ccw(ring) { let a = 0; for (let i = 0; i < ring.length - 1; i++) a += ring[i][0] * ring[i + 1][1] - ring[i + 1][0] * ring[i][1]; return a < 0 ? ring.slice().reverse() : ring; }
 
   // 開発者ツールから触れるように（デバッグ用）
-  window.FlexApp = { S, M, refreshMap, runValidate, selectStop, loadFeed, renderZones, renderTrips, renderEditor, renderChanges, setTab, renderGraph, openRow, mapView: () => lastView, popOutEditor, popInEditor, editorWindow: () => popDoc() && pop };
+  window.FlexApp = { S, M, refreshMap, runValidate, selectStop, loadFeed, renderZones, renderTrips, renderEditor, renderChanges, setTab, renderGraph, openRow, mapView: () => lastView, popOutEditor, popInEditor, editorWindow: () => popDoc() && pop, undo, redo, undoState: () => ({ undo: undoStack.length + (undoTimer ? 1 : 0), redo: redoStack.length }) };
 
   // ---------- 起動: 前回の続き ----------
   (async () => {
