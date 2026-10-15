@@ -142,6 +142,9 @@ dialog menu { display: flex; justify-content: flex-end; gap: 8px; padding: 0; ma
 .diffitem .chg b { color: var(--text); font-weight: 600; }
 .issues .fix { margin-top: 3px; display: flex; gap: 6px; align-items: center; font-size: 12px; color: #1a4f1a; }
 .issues .fix span { flex: 1; }
+.issues .fix.alt { color: #1a3f8a; flex-wrap: wrap; }
+.issues .fix.alt span { flex: none; }
+.issues .fix.alt select { max-width: 220px; font-size: 12px; }
 /* 同じ種類の指摘のまとまり */
 .issues li.group { background: #f4f6f9; }
 .issues li.group .count { display: inline-block; padding: 0 6px; margin-right: 2px; border-radius: 9px; background: #dde3ea; font-size: 12px; font-weight: 600; }

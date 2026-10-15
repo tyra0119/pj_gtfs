@@ -457,6 +457,7 @@
       el('div', null, it.msg),
       el('div', { class: 'loc' }, `${it.file}${it.row ? ' ' + it.row + ' 行目' : ''}${it.field ? ' / ' + it.field + '（' + SPEC.label(it.file, it.field) + '）' : ''}`));
     if (it.fix) li.append(el('div', { class: 'fix' }, el('span', null, '修正案: ' + it.fix.label), el('button', { class: 'btn small', onclick: e => { e.stopPropagation(); applyFix(it); } }, '適用')));
+    if (it.file === 'stops.txt' && it.code === 'unused') { const r = G.rows(S.feed, 'stops.txt')[it.row - 2]; if (r) li.append(addToGroupFix([r.stop_id])); }
     li._issue = it;
     return li;
   }
@@ -473,9 +474,33 @@
       el('div', { class: 'loc' }, `${g.file}${rows.length ? ` ${Math.min(...rows)}〜${Math.max(...rows)} 行目` : ''}${g.field ? ' / ' + g.field + '（' + SPEC.label(g.file, g.field) + '）' : ''}　`, toggle),
       g.note ? el('div', { class: 'note' }, g.note) : null,
       g.fix ? el('div', { class: 'fix' }, el('span', null, '修正案: ' + g.fix.label), el('button', { class: 'btn small', onclick: e => { e.stopPropagation(); applyGroupFix(g); } }, 'まとめて適用')) : null,
+      g.file === 'stops.txt' && g.code === 'unused' ? addToGroupFix(g.items.map(i => (G.rows(S.feed, 'stops.txt')[i.row - 2] || {}).stop_id).filter(Boolean)) : null,
       sub);
     li._group = g;
     return li;
+  }
+  // 使われていない停留所の別の案: 消すのではなく、グループに入れる（デマンド交通の乗降場として使う）。
+  // 入れ先は今のグループ（便で使われているかを添える。使われていないグループに入れても乗り降りには使われない）か、新しいグループ
+  function addToGroupFix(stopIds) {
+    const groups = G.rows(S.feed, 'location_groups.txt'), st = G.rows(S.feed, 'stop_times.txt');
+    const sel = el('select', { class: 'alt-group', title: '入れ先のグループ' });
+    for (const g of groups) { const n = new Set(st.filter(r => r.location_group_id === g.location_group_id).map(r => r.trip_id)).size; sel.append(el('option', { value: g.location_group_id }, `${g.location_group_name || g.location_group_id}（${n ? '便 ' + n + ' 本で使用' : 'どの便にも使われていない'}）`)); }
+    sel.append(el('option', { value: '__new' }, '＋ 新しいグループを作る'));
+    if (S.group && groups.some(g => g.location_group_id === S.group)) sel.value = S.group;
+    const btn = el('button', { class: 'btn small', onclick: () => addStopsToGroup(stopIds, sel.value) }, stopIds.length > 1 ? 'まとめて入れる' : '入れる');
+    return el('div', { class: 'fix alt', onclick: e => e.stopPropagation() }, el('span', null, `別の案: ${stopIds.length > 1 ? stopIds.length + ' 件を' : ''}グループ`), sel, el('span', null, 'に入れる'), btn);
+  }
+  function addStopsToGroup(ids, gid) {
+    if (!S.feed || !ids.length) return;
+    const t = G.ensureTable(S.feed, 'location_groups.txt');
+    if (gid === '__new') {
+      const name = prompt('新しいグループの名前（例: ○○地区）', ''); if (name == null) return;
+      gid = nextId(t.rows.map(r => r.location_group_id), 'zone');
+      t.rows.push(G.newRow('location_groups.txt', { location_group_id: gid, location_group_name: name.trim() }));
+    } else if (ids.length > 1 && !confirm(`停留所 ${ids.length} 件をグループ「${groupLabel(gid)}」に入れますか？\n（変更のタブで確かめられ、元に戻せます）`)) return;
+    const m = G.ensureTable(S.feed, 'location_group_stops.txt'); const have = memberSet(gid);
+    for (const id of ids) if (!have.has(id)) m.rows.push(G.newRow('location_group_stops.txt', { location_group_id: gid, stop_id: id }));
+    S.group = gid; changed(); fillFileSelect(); validateNow(); renderZones(); refreshMap(false);
   }
   function setGroupOpen(li, open) {
     const g = li._group; if (open) openGroups.add(g.key); else openGroups.delete(g.key);
