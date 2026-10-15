@@ -15,6 +15,7 @@
     canonical: { label: 'GTFS-Flex 正式版（2024-03 採択、GTFS Schedule）', short: '正式版' },
     draft2022: { label: 'GTFS-Flex v2 後期ドラフト（2022〜23、areas / stop_areas 方式）', short: 'v2 後期ドラフト' },
     draft2020: { label: 'GTFS-Flex v2 初期ドラフト（2020、location_groups に location_id、pickup_dropoff_window）', short: 'v2 初期ドラフト' },
+    draft2019: { label: 'GTFS-Flex v2 最初期ドラフト（〜2020、min_arrival_time / max_departure_time。読み込みのみ）', short: 'v2 最初期ドラフト' },
     noflex: { label: 'Flex を除いた GTFS（Google 乗換案内向け。デマンド交通の便・区域・予約ルールを外す）', short: 'Flex なし' },
   };
   const DRAFT_ONLY_COLUMNS = ['mean_duration_factor', 'mean_duration_offset', 'safe_duration_factor', 'safe_duration_offset'];
@@ -26,6 +27,8 @@
 
   function detect(feed) {
     const stH = header(feed, 'stop_times.txt');
+    // 最初期のドラフト（OpenTripPlanner 2.0〜2.2 の試験データなど）: 乗降時間帯を min_arrival_time / max_departure_time で書く
+    if ((stH.includes('min_arrival_time') || stH.includes('max_departure_time')) && rows(feed, 'stop_times.txt').some(r => r.min_arrival_time || r.max_departure_time)) return 'draft2019';
     if (stH.includes('start_pickup_dropoff_window') || stH.includes('end_pickup_dropoff_window')) return 'draft2020';
     if (header(feed, 'location_groups.txt').includes('location_id') && !has(feed, 'location_group_stops.txt')) return 'draft2020';
     if (rows(feed, 'stop_times.txt').some(r => r.location_group_id || r.location_id) || has(feed, 'location_group_stops.txt')) return 'canonical';
@@ -44,6 +47,13 @@
   function toCanonical(feed) {
     const version = detect(feed);
     const notes = [];
+    // どの版でも: 予約ルールの「何分前」を 24:00:00 のような時刻形式で書いたものは分に直す（ドラフト時代のデータにある）
+    let durFixed = 0;
+    for (const r of rows(feed, 'booking_rules.txt')) for (const c of ['prior_notice_duration_min', 'prior_notice_duration_max']) {
+      const m = /^(\d{1,3}):(\d{2})(?::(\d{2}))?$/.exec(r[c] || '');
+      if (m) { r[c] = String(+m[1] * 60 + +m[2] + (m[3] && +m[3] >= 30 ? 1 : 0)); durFixed++; }
+    }
+    if (durFixed) notes.push(`booking_rules.txt の「何分前」${durFixed} か所が時刻形式（例 24:00:00）だったので分に直した`);
     if (version === 'canonical') return { version, notes };
     const G = window.GTFS;
     const st = feed.files['stop_times.txt'];
@@ -60,7 +70,7 @@
     const stopIds = new Set(rows(feed, 'stops.txt').map(r => r.stop_id));
     const lids = locIds(feed);
     const groups = new Map(); // id -> { name, members: [stop_id], locs: [location id] }
-    if (version === 'draft2020' && header(feed, 'location_groups.txt').includes('location_id')) {
+    if ((version === 'draft2020' || version === 'draft2019') && header(feed, 'location_groups.txt').includes('location_id')) {
       for (const r of rows(feed, 'location_groups.txt')) {
         if (!groups.has(r.location_group_id)) groups.set(r.location_group_id, { name: r.location_group_name || '', members: [], locs: [] });
         const g = groups.get(r.location_group_id);
@@ -68,7 +78,7 @@
         if (!r.location_id) continue;
         if (lids.has(r.location_id) && !stopIds.has(r.location_id)) g.locs.push(r.location_id); else g.members.push(r.location_id);
       }
-      notes.push(`location_groups.txt（${rows(feed, 'location_groups.txt').length} 行、location_id 方式）を location_groups.txt + location_group_stops.txt に分けた`);
+      if (rows(feed, 'location_groups.txt').length) notes.push(`location_groups.txt（${rows(feed, 'location_groups.txt').length} 行、location_id 方式）を location_groups.txt + location_group_stops.txt に分けた`);
     }
     if (version === 'draft2022') {
       const used = new Set(rows(feed, 'stop_times.txt').map(r => r.stop_id).filter(id => id && !stopIds.has(id) && !lids.has(id)));
@@ -99,6 +109,34 @@
         else if (lids.has(r.stop_id)) { r.location_id = r.stop_id; r.stop_id = ''; moved++; }
       }
       if (moved) notes.push(`stop_times.txt の ${moved} 行で、stop_id に入っていたグループ／区域の ID を location_group_id / location_id に移した`);
+      // 区域・グループの行の時刻を乗降時間帯にする。最初期ドラフトは min_arrival_time / max_departure_time、ほかは到着・出発時刻を使う
+      const isZone = r => r.location_group_id || r.location_id;
+      let win = 0, minmax = 0;
+      for (const r of st.rows) {
+        if (isZone(r) && !(r.start_pickup_drop_off_window && r.end_pickup_drop_off_window)) {
+          const a = r.min_arrival_time || r.arrival_time || r.departure_time, b = r.max_departure_time || r.departure_time || r.arrival_time;
+          if (a && b) { r.start_pickup_drop_off_window = a; r.end_pickup_drop_off_window = b; r.arrival_time = ''; r.departure_time = ''; win++; if (r.min_arrival_time || r.max_departure_time) minmax++; }
+        }
+        if (isZone(r) && (r.arrival_time || r.departure_time) && r.start_pickup_drop_off_window) { r.arrival_time = ''; r.departure_time = ''; }
+        delete r.min_arrival_time; delete r.max_departure_time;
+      }
+      if (st.header.includes('min_arrival_time') || st.header.includes('max_departure_time')) st.header = st.header.filter(h => h !== 'min_arrival_time' && h !== 'max_departure_time');
+      for (const c of ['start_pickup_drop_off_window', 'end_pickup_drop_off_window']) if (win && !st.header.includes(c)) st.header.push(c);
+      if (win) notes.push(`区域・グループの ${win} 行で、時刻を乗降時間帯に移した${minmax ? `（うち ${minmax} 行は min_arrival_time / max_departure_time から）` : '（到着・出発時刻から）'}`);
+      // 区域の行が 1 つだけの便（ドラフトでは「その区域の中で乗り降り」の意味）は、正式版の形（同じ区域の行を 2 つ）にする
+      const byTrip = new Map(); for (const r of st.rows) { if (!byTrip.has(r.trip_id)) byTrip.set(r.trip_id, []); byTrip.get(r.trip_id).push(r); }
+      let split = 0;
+      for (const [, list] of byTrip) {
+        if (list.length !== 1 || !isZone(list[0])) continue;
+        const a = list[0], b = Object.assign({}, a, { stop_sequence: String((+a.stop_sequence || 0) + 1) });
+        st.rows.splice(st.rows.indexOf(a) + 1, 0, b); split++;
+      }
+      if (split) notes.push(`区域の行が 1 つだけの便 ${split} 本を、同じ区域の行 2 つ（乗る行・降りる行）にした`);
+      // 時刻も乗降時間帯もない区域の行は、正式版では表せない（最初期ドラフトの「経路から一定距離の迂回」など）。黙って直さず知らせる
+      const noTime = st.rows.filter(r => isZone(r) && !(r.start_pickup_drop_off_window && r.end_pickup_drop_off_window));
+      if (noTime.length) notes.push(`時刻も乗降時間帯もない区域の行が ${noTime.length} 行ある（${[...new Set(noTime.map(r => r.location_id || r.location_group_id))].slice(0, 3).join(', ')} など）。ドラフト時代の「経路から一定距離の迂回」などは正式版では表せないので、乗降時間帯を入れるか、行を消して作り直す必要がある（検証でエラーとして出る）`);
+      const lineLocs = ((feed.locations && feed.locations.features) || []).filter(f => f.geometry && /LineString|Point/.test(f.geometry.type)).length;
+      if (lineLocs) notes.push(`locations.geojson に線・点の区域が ${lineLocs} 件ある（ドラフト時代は使えたが、正式版は面（Polygon / MultiPolygon）だけ）`);
       const draftCols = DRAFT_ONLY_COLUMNS.filter(c => st.header.includes(c) && st.rows.some(r => r[c]));
       if (draftCols.length) notes.push(`ドラフト版だけの列 ${draftCols.join(', ')} は正式版にないので、そのまま残す（検証で「仕様外」と出る）`);
     }
@@ -120,10 +158,14 @@
       st.header = st.header.filter(h => !drop.includes(h));
       for (const r of st.rows) for (const h of drop) delete r[h];
       const tr = out.files['trips.txt'];
+      const before = new Set((tr ? tr.rows : []).map(r => r.route_id));
       if (tr) tr.rows = tr.rows.filter(r => !flexTrips.has(r.trip_id));
       const used = new Set((tr ? tr.rows : []).map(r => r.route_id));
+      const gone = new Set([...before].filter(id => !used.has(id)));
       const ro = out.files['routes.txt'];
-      if (ro) ro.rows = ro.rows.filter(r => used.has(r.route_id));
+      if (ro) ro.rows = ro.rows.filter(r => !gone.has(r.route_id));
+      const fr = out.files['fare_rules.txt'];
+      if (fr) fr.rows = fr.rows.filter(r => !gone.has(r.route_id));
     }
     return out;
   }

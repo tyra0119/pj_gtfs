@@ -182,7 +182,7 @@ table.grid th .coldel:hover { color: var(--err); }
 .steps li.current { background: #fff5d6; }
 
 /* つながり（図） */
-.graph { width: 100%; height: auto; max-height: 62vh; display: block; margin: 4px 0; }
+.graph { width: 100%; max-width: 440px; height: auto; max-height: 42vh; display: block; margin: 4px auto; }
 .graph .node rect { fill: #fff; stroke: #2a9d4a; stroke-width: 1.5; }
 .graph .node.missing rect { fill: #fdecec; stroke: #d33; stroke-dasharray: 5 3; stroke-width: 2; }
 .graph .node.empty rect { fill: #f6f6f6; stroke: #bbb; stroke-dasharray: 4 3; }

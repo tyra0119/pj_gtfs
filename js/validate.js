@@ -101,13 +101,14 @@
             const seen = new Map();
             t.rows.forEach((r, i) => {
               const v = r[spec.key];
-              if (!v) { err(name, i, spec.key, `${spec.key} が空`, 'empty_key'); return; }
+              if (!v) { const kf = spec.fields.find(x => x.name === spec.key); if (!kf || kf.required === true) err(name, i, spec.key, `${spec.key} が空`, 'empty_key'); return; } // 条件付きの ID（agency_id など）は個別の規則で見る
               if (seen.has(v)) err(name, i, spec.key, `${spec.key} "${v}" が重複（${seen.get(v) + 2} 行目と同じ）`, 'dup_key');
               else seen.set(v, i);
             });
           }
           t.rows.forEach((r, i) => {
             for (const fd of spec.fields) {
+              if (fd.draft) continue; // ドラフト版だけの列は、版によって書き方が違う（数値・時刻）ので型を見ない
               const v = r[fd.name] == null ? '' : String(r[fd.name]);
               if (v === '') { if (fd.required === true && fd.name !== spec.key && present.has(fd.name)) err(name, i, fd.name, `${fd.name}（${fd.label}）が空`, 'empty_required'); continue; }
               if (fd.type === 'enum') { if (!(v in fd.values)) err(name, i, fd.name, `${fd.name} "${v}" は ${Object.keys(fd.values).filter(Boolean).join(' / ')} のどれか`, 'bad_enum'); }
@@ -313,7 +314,8 @@
           if (hasWin && (r.arrival_time || r.departure_time)) err(f, i, 'arrival_time', '乗降時間帯のある行に arrival_time / departure_time は書けない', 'window_vs_time', { label: 'arrival_time / departure_time を空にする', safe: true, apply: () => { r.arrival_time = ''; r.departure_time = ''; } });
           if (!hasWin && !isZone && !r.arrival_time && !r.departure_time) info(f, i, 'arrival_time', '時刻も乗降時間帯もない行（通過停留所なら可）', 'no_time');
           for (const k of ['arrival_time', 'departure_time', 'start_pickup_drop_off_window', 'end_pickup_drop_off_window']) if (r[k] && /^\d:/.test(r[k])) info(f, i, k, `${k} "${r[k]}" は 0 を補って 0${r[k]} と書くのが一般的`, 'time_pad', c.setVal(r, k, '0' + r[k], null, true));
-          if (sw && ew && parseTime(sw) != null && parseTime(ew) != null && parseTime(sw) >= parseTime(ew)) err(f, i, 'end_pickup_drop_off_window', '乗降時間帯の終了が開始以前', 'window_order');
+          if (sw && ew && parseTime(sw) != null && parseTime(ew) != null && parseTime(sw) > parseTime(ew)) err(f, i, 'end_pickup_drop_off_window', '乗降時間帯の終了が開始より前', 'window_order');
+          else if (sw && ew && sw === ew) warn(f, i, 'end_pickup_drop_off_window', '乗降時間帯の開始と終了が同じ（幅がない）。意図どおりか', 'window_zero');
           const pt = r.pickup_type || '0', dt = r.drop_off_type || '0';
           const rules = R('booking_rules.txt');
           const onlyRule = rules.length === 1 ? rules[0].booking_rule_id : null;

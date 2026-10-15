@@ -923,7 +923,7 @@
       onEdge(e) {
         info.innerHTML = '';
         const from = a.nodes.find(x => x.id === e.from), to = a.nodes.find(x => x.id === e.to);
-        const box = el('div', { class: 'box' }, el('b', null, `${from.label} の ${e.cols.join('・')} → ${to.label}`), el('div', null, `指している行 ${e.refs} 件${e.broken.length ? `、そのうち指す先がない行 ${e.broken.length} 件` : '。すべてつながっています。'}`));
+        const box = el('div', { class: 'box' }, el('b', null, `${from.label} の ${e.cols.join('・')} → ${to.label}`), el('div', null, `つながりの必要: ${e.need}。${e.needNote}`), el('div', null, e.refs ? `指している行 ${e.refs} 件${e.broken.length ? `、そのうち指す先がない行 ${e.broken.length} 件` : '。すべてつながっています。'}` : `指している行はありません${e.need === '任意' ? '（任意なので問題ありません）' : ''}。`));
         if (e.broken.length) {
           box.append(el('div', { class: 'small' }, `直し方: 行へ移って ${e.cols.join('・')} を ${to.label}（${to.file}）にある ID に直すか、${to.label} にその ID の行を作ります。`));
           const ul = el('ul');

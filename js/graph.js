@@ -22,19 +22,20 @@
   const W = 160, H = 50;
 
   // 参照の定義: [from, 列, to, 列の日本語]
+  // 5 番目: つながっている必要があるか（必須・推奨・任意）と、その説明
   const REFS = [
-    ['routes', 'agency_id', 'agency', '事業者ID'],
-    ['trips', 'route_id', 'routes', '路線ID'],
-    ['trips', 'service_id', 'calendar', '運行日ID'],
-    ['stop_times', 'trip_id', 'trips', '便ID'],
-    ['stop_times', 'stop_id', 'stops', '停留所ID'],
-    ['stop_times', 'location_group_id', 'location_groups', 'グループID'],
-    ['stop_times', 'location_id', 'locations', '区域ID'],
-    ['stop_times', 'pickup_booking_rule_id', 'booking_rules', '予約ルール'],
-    ['stop_times', 'drop_off_booking_rule_id', 'booking_rules', '予約ルール'],
-    ['location_group_stops', 'location_group_id', 'location_groups', 'グループID'],
-    ['location_group_stops', 'stop_id', 'stops', '停留所ID'],
-    ['booking_rules', 'prior_notice_service_id', 'calendar', '運行日ID'],
+    ['routes', 'agency_id', 'agency', '事業者ID', ['必須', 'どの路線も、どれかの事業者に属する（事業者が 1 つなら空でもよい。GTFS-JP では必須）']],
+    ['trips', 'route_id', 'routes', '路線ID', ['必須', 'どの便も、どれかの路線に属する']],
+    ['trips', 'service_id', 'calendar', '運行日ID', ['必須', 'どの便も、走る日（運行日）を持つ']],
+    ['stop_times', 'trip_id', 'trips', '便ID', ['必須', 'どの行も、どれかの便に属する']],
+    ['stop_times', 'stop_id', 'stops', '停留所ID', ['どれか 1 つ必須', '各行は 停留所・グループ・区域 のどれか 1 つを指す']],
+    ['stop_times', 'location_group_id', 'location_groups', 'グループID', ['どれか 1 つ必須', '各行は 停留所・グループ・区域 のどれか 1 つを指す']],
+    ['stop_times', 'location_id', 'locations', '区域ID', ['どれか 1 つ必須', '各行は 停留所・グループ・区域 のどれか 1 つを指す']],
+    ['stop_times', 'pickup_booking_rule_id', 'booking_rules', '予約ルール', ['推奨', '仕様上は任意。ただし「事業者に連絡して乗る・降りる」（2）の行に予約ルールがないと、経路検索が予約方法（電話・何分前まで）を案内できない。乗車・降車できない（1）の行には付けない']],
+    ['stop_times', 'drop_off_booking_rule_id', 'booking_rules', '予約ルール', ['推奨', '']],
+    ['location_group_stops', 'location_group_id', 'location_groups', 'グループID', ['必須', 'グループの停留所は、どれかのグループに属する']],
+    ['location_group_stops', 'stop_id', 'stops', '停留所ID', ['必須', 'グループに入れる停留所は stops.txt にある']],
+    ['booking_rules', 'prior_notice_service_id', 'calendar', '運行日ID', ['任意', '前日予約（2）で、締め切りの日数を営業日で数えたいときだけ使う（例: 前日まで、ただし土日祝は数えない）。ふつうは使わない']],
   ];
 
   function rowsOf(feed, id) {
@@ -58,7 +59,7 @@
     });
     const byId = Object.fromEntries(nodes.map(n => [n.id, n]));
     const edges = [];
-    for (const [from, col, to, colLabel] of REFS) {
+    for (const [from, col, to, colLabel, need] of REFS) {
       const src = rowsOf(feed, from);
       const ids = idsOf(feed, to);
       let refs = 0; const broken = [];
@@ -70,7 +71,7 @@
       // 同じ from→to は 1 本にまとめる（予約ルールの乗車・降車など）
       const e = edges.find(x => x.from === from && x.to === to);
       if (e) { e.refs += refs; e.broken.push(...broken.map(b => Object.assign(b, { col }))); e.cols.push(col); }
-      else edges.push({ from, to, cols: [col], colLabel, refs, broken: broken.map(b => Object.assign(b, { col })) });
+      else edges.push({ from, to, cols: [col], colLabel, need: need[0], needNote: need[1], refs, broken: broken.map(b => Object.assign(b, { col })) });
     }
     // どこからも使われていない行（参照される側）
     const used = (to) => { const s = new Set(); for (const [from, col, t] of REFS) if (t === to) for (const r of rowsOf(feed, from)) if (r[col]) s.add(String(r[col])); return s; };
@@ -108,11 +109,11 @@
       g.appendChild(el('line', { x1: s.x, y1: s.y, x2: t.x, y2: t.y, class: 'hit' }));
       g.appendChild(el('line', { x1: s.x, y1: s.y, x2: t.x, y2: t.y, 'marker-end': `url(#arr-${kind})` }));
       const mx = (s.x + t.x) / 2, my = (s.y + t.y) / 2;
-      const label = e.broken.length ? `途切れ ${e.broken.length}` : e.refs ? `${e.refs}` : '0';
+      const label = e.broken.length ? `途切れ ${e.broken.length}` : e.refs ? `${e.refs}` : (e.need === '任意' ? '任意' : '0');
       const lw = [...label].reduce((w, ch) => w + (ch.charCodeAt(0) > 255 ? 13 : 8), 0) + 14;
       g.appendChild(el('rect', { x: mx - lw / 2, y: my - 11, width: lw, height: 22, rx: 11, class: 'tag' }));
       g.appendChild(el('text', { x: mx, y: my + 5, 'text-anchor': 'middle' }, label));
-      g.appendChild(el('title', null, `${p.file} の ${e.cols.join(' / ')} → ${q.file}\n参照 ${e.refs} 件${e.broken.length ? `、うち参照先がない ${e.broken.length} 件` : ''}`));
+      g.appendChild(el('title', null, `${p.file} の ${e.cols.join(' / ')} → ${q.file}（${e.need}）\n参照 ${e.refs} 件${e.broken.length ? `、うち参照先がない ${e.broken.length} 件` : ''}`));
       g.addEventListener('click', () => h.onEdge(e)); g.addEventListener('keydown', ev => { if (ev.key === 'Enter') h.onEdge(e); });
       svg.appendChild(g);
     }
