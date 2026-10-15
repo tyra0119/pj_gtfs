@@ -1,0 +1,178 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>GTFS-Flex 作成・検証ツール 使い方</title>
+<meta name="description" content="GTFS-Flex 作成・検証ツールの使い方。デマンド交通のデータ（GTFS-Flex）を、ブラウザだけで作成・編集・検証し、ODPT に提供できる形で書き出します">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Zen+Kaku+Gothic+New:wght@400;500;700;900&family=BIZ+UDPGothic:wght@400;700&display=swap">
+<style>
+/* 使い方のページ（Machiawase・エキしるべの manual.html と同じ作り）。紺の帯、ツールの青緑、エラーの赤と警告の黄 */
+:root {
+  --bg: #f2f1ec; --surface: #ffffff; --ink: #17283d; --muted: #5a6574; --line: #d3d8dc; --faint: #e8ebee;
+  --accent: #0b7a70; --accent-soft: #e3efec; --err: #c62f2f; --warn: #a8530f; --sign: #17283d;
+  --f-body: "BIZ UDPGothic", "Hiragino Sans", "Yu Gothic", "Meiryo", sans-serif;
+  --f-head: "Zen Kaku Gothic New", "Hiragino Sans", "Yu Gothic", sans-serif;
+}
+@media (prefers-color-scheme: dark) {
+  :root { --bg: #111820; --surface: #1a2430; --ink: #e8ecef; --muted: #a9b6c3; --line: #2c3b4b; --faint: #223040;
+    --accent: #5fc4b6; --accent-soft: #173431; --err: #ff7a7a; --warn: #f0a562; --sign: #0b121a; color-scheme: dark; }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--ink); font-family: var(--f-body); font-size: 16px; line-height: 1.8; }
+.sign { background: var(--sign); color: #fff; }
+.sign .in { max-width: 920px; margin: 0 auto; padding: 16px; display: flex; align-items: center; gap: 14px; }
+.badge { width: 46px; height: 46px; border-radius: 50%; border: 5px solid #0b7a70; background: #fff; color: #17283d;
+  display: grid; place-items: center; font-weight: 900; font-size: 12px; flex: none; font-family: "Arial Narrow", sans-serif; }
+.sign h1 { margin: 0; font-family: var(--f-head); font-size: 24px; font-weight: 900; letter-spacing: .04em; }
+.sign h1 small { display: block; font-size: 12px; font-weight: 500; opacity: .75; letter-spacing: .08em; }
+.sign a { color: #fff; margin-left: auto; font-size: 14px; white-space: nowrap; }
+main { max-width: 920px; margin: 0 auto; padding: 8px 16px 48px; }
+section { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 20px 22px; margin-top: 20px; }
+h2 { font-family: var(--f-head); font-size: 20px; margin: 0 0 8px; letter-spacing: .03em; display: flex; align-items: center; gap: 10px; text-wrap: balance; }
+h2 .no { font-size: 15px; color: #fff; background: var(--accent); border-radius: 999px; width: 28px; height: 28px; display: grid; place-items: center; flex: none; }
+h3 { font-size: 16px; margin: 18px 0 4px; }
+p { margin: 6px 0; } ul, ol { margin: 6px 0; padding-left: 1.4em; } li { margin: 2px 0; }
+figure { margin: 14px 0 6px; }
+figure img { width: 100%; height: auto; border-radius: 8px; border: 1px solid var(--line); display: block; }
+figcaption { font-size: 13px; color: var(--muted); margin-top: 4px; }
+table { border-collapse: collapse; width: 100%; font-size: 14px; margin: 8px 0; }
+th, td { border-bottom: 1px solid var(--line); padding: 6px 8px; text-align: left; vertical-align: top; }
+th { color: var(--muted); font-weight: 500; white-space: nowrap; }
+.chip { display: inline-block; font-size: 13px; padding: 0 9px; border-radius: 999px; background: var(--faint); white-space: nowrap; }
+.btn { display: inline-block; font-size: 14px; padding: 0 8px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); white-space: nowrap; }
+.err { color: var(--err); font-weight: 700; } .warn { color: var(--warn); font-weight: 700; } .ac { color: var(--accent); font-weight: 700; }
+.note { background: var(--accent-soft); border-radius: 8px; padding: 10px 14px; font-size: 14px; margin-top: 10px; }
+footer { font-size: 12px; color: var(--muted); margin-top: 24px; }
+a { color: var(--accent); }
+@media (max-width: 680px) {
+  table, tbody, tr, th, td { display: block; width: 100%; }
+  tr { border-bottom: 1px solid var(--line); padding: 6px 0; }
+  th, td { border-bottom: none; padding: 2px 0; }
+  th { white-space: normal; font-weight: 700; }
+  section { padding: 16px; } .sign a { display: none; }
+}
+</style>
+</head>
+<body>
+<header class="sign"><div class="in">
+  <div class="badge" aria-hidden="true">Flex</div>
+  <h1><small>GTFS-Flex 作成・検証ツール　デマンド交通のデータを作り・確かめ・ODPT へ</small>使い方</h1>
+  <a href="./">ツールを開く →</a>
+</div></header>
+
+<main>
+<section>
+  <h2>このツールについて</h2>
+  <p>予約して乗る乗合バス・乗合タクシー（デマンド交通）の、<b>区域</b>・<b>乗り降りできる時間帯</b>・<b>予約の方法</b>を表す標準形式 <b>GTFS-Flex</b> のデータを、ブラウザだけで<b>作成・編集・検証</b>するツールです。運行事業者や自治体の担当者が、データを作って確かめ、公共交通オープンデータセンター（ODPT）に提供できる形で書き出すことを目指しています。日本の標準仕様 <b>GTFS-JP 4.0</b>（2026 年 3 月）にも対応しています。</p>
+  <p>インストールや登録は要りません。データはブラウザの中だけで扱い、どこにも送りません。パソコンのブラウザ（Chrome・Edge・Firefox・Safari の最新版）で使ってください。</p>
+  <figure><img src="manual/01_overview.jpg" alt="ODPT の五所川原市のデータを開いた画面。左に概要と作成の手順、右に停留所の地図" loading="lazy"><figcaption>ODPT の公開データ「五所川原市 AI デマンド交通 ごしょくる」を開いたところ。上に 3 つの手順、左に概要と作成の手順、右に地図</figcaption></figure>
+</section>
+
+<section>
+  <h2><span class="no">1</span>データを開く</h2>
+  <p>画面の上の「① データを開く」から、3 通りで始められます。</p>
+  <ul>
+    <li><span class="btn">📂 パソコンの zip を開く</span> … 手元の GTFS / GTFS-Flex の zip。文字コード（UTF-8・Shift_JIS）は自動で見分けます</li>
+    <li><span class="btn">🌐 公開データから選ぶ</span> … ODPT のデマンド交通 16 件と、海外の例（OpenTripPlanner の試験データ 3 件）。選ぶとすぐ開きます。<span class="btn">開き直す</span> で元の状態から開き直せます</li>
+    <li><span class="btn">＋ 新しく作る</span> … まっさらから作ります（次の 2）</li>
+  </ul>
+  <p>古い書き方（GTFS-Flex のドラフト版）のデータは、正式版（2024 年 3 月〜）に直して扱い、何を直したかを概要に出します。正式版で表せない所は、そう知らせます。</p>
+  <div class="note">編集した内容はブラウザに自動で保存します。次に開いたとき「前回の続き」を聞きます。別のデータに切り替えても、前のデータの修正は残っています。</div>
+</section>
+
+<section>
+  <h2><span class="no">2</span>まっさらから作る</h2>
+  <p><span class="btn">＋ 新しく作る</span> で、事業者名・URL・予約の電話番号・サービス名・区域の表し方・運行曜日・期間・乗り降りできる時間帯・予約の種類を入れると、必要なファイルがそろいます。必須の欄には <span class="err">*</span> が付いています。</p>
+  <figure><img src="manual/05_new.jpg" alt="新規作成の画面" loading="lazy"><figcaption>新規作成。区域の表し方は「停留所グループ（決まった乗降場所の集まり）」か「区域ポリゴン（区域の中ならどこでも）」</figcaption></figure>
+  <h3>区域・停留所（「区域・停留所」タブ）</h3>
+  <ul>
+    <li>停留所は、<span class="btn">地図をクリックして追加</span> を押してから地図をクリックした所に置きます。<span class="btn">ドラッグで移動</span> で動かせます</li>
+    <li>停留所グループに停留所を出し入れするには、<span class="btn">地図で停留所を出し入れ</span> を押して地図の停留所をクリック。<span class="btn">全停留所を入れる</span>・<span class="btn">空にする</span> もあります</li>
+    <li>区域ポリゴンは <span class="btn">地図に描く</span> でクリックした所が頂点になり、ダブルクリックか Enter で確定。頂点はドラッグで動かし、辺の中ほどの点で頂点を足せます</li>
+  </ul>
+  <figure><img src="manual/06_zones.jpg" alt="区域・停留所タブと、地図で停留所を押したときの吹き出し" loading="lazy"><figcaption>停留所を押すと吹き出しに名前・所属グループ・指摘。編集・表で見る・消すもここから。消すとグループや便の参照も外します</figcaption></figure>
+  <h3>便（「便を追加」タブ）</h3>
+  <p>路線・運行日・乗る所と降りる所（グループ・区域・停留所）・乗り降りできる時間帯・予約ルールを選んで足します。区域の中で乗り降りする便は、ガイドラインの形（乗る行と降りる行の 2 行）で作ります。</p>
+  <figure><img src="manual/08_trips.jpg" alt="便を追加タブ" loading="lazy"><figcaption>便を追加</figcaption></figure>
+</section>
+
+<section>
+  <h2><span class="no">3</span>確かめる</h2>
+  <p>編集すると自動で検証します（<span class="btn">✔ 検証する</span> でいつでも）。指摘は「検証」タブに、<span class="err">エラー</span>・<span class="warn">警告</span>・情報 の順で並びます。押すとその行・欄へ移り、<span class="btn">← 検証結果に戻る</span> で戻れます。</p>
+  <figure><img src="manual/02_validate.jpg" alt="検証の一覧と、便を選んだ地図" loading="lazy"><figcaption>福智町（ODPT）の検証の一覧。修正案の <span class="btn">適用</span> で直ります</figcaption></figure>
+  <ul>
+    <li><b>検証の規則</b>は 12 分類（仕様の必須・条件・型、ファイル間の参照、事業者、停留所、路線、運行日、区域、グループ、予約ルール、時刻と乗降時間帯、GTFS-JP の決まり、使われていないもの）。「検証の規則」から外すこともできます</li>
+    <li><b>基準</b>を選べます: GTFS-JP v4（2026-03）・GTFS-JP 第 3 版・国際仕様のみ。海外のデータを開くと、自動で国際仕様になります</li>
+    <li><b>修正案</b>を 1 件ずつ、または <span class="btn">安全な修正案をまとめて適用</span>（値の整形など。行の削除は含みません）</li>
+    <li>同じ種類の指摘がたくさんあるときは 1 つにまとめ、件数と理由を出します。使われていない停留所は「まとめて消す」か「グループに入れる」を選べます</li>
+    <li><span class="err">エラーは赤</span>、<span class="warn">警告は黄色</span>の印が、ファイルの選択欄（✖ / △ と件数）・表のセル・フォームの欄・地図の停留所と区域にも付きます</li>
+  </ul>
+  <figure><img src="manual/11_grouped.jpg" alt="同じ指摘のまとまり" loading="lazy"><figcaption>海外の例（リンカーン郡）。古いドラフト版の「経路から一定距離の迂回」の行は、正式版では表せないと説明します</figcaption></figure>
+  <div class="note">公開する前に、公式の検証器（<a href="https://gtfs-validator.mobilitydata.org/" target="_blank" rel="noopener">Canonical GTFS Validator</a>、日本語版は <a href="https://gtfs-data.jp/" target="_blank" rel="noopener">GTFS データリポジトリ</a>）にも zip を通してください。運行日は <a href="https://www.busdata.or.jp/gtfs/calendar.html" target="_blank" rel="noopener">運行日チェッカー</a>（日本バス情報協会）でも確かめられます。</div>
+</section>
+
+<section>
+  <h2><span class="no">4</span>つながりの図・便をたどる</h2>
+  <p>「つながり」タブでは、ファイルを箱、参照（ID）を矢印で描きます。矢印の数字は参照している行の数、<span class="err">途切れ N</span> は参照先がない行の数です。矢印ごとに「必須・どれか 1 つ必須・推奨・任意」を書き分け、使っていない任意の矢印は灰色です。箱や矢印を押すと説明と直し方、途切れた行の一覧が出ます。</p>
+  <figure><img src="manual/03_graph.jpg" alt="つながりの図と、停留所をグループごとに色分けした地図" loading="lazy"><figcaption>つながりの図（五所川原市）。右の地図は停留所をグループごとに色分け</figcaption></figure>
+  <p>「便を選んでつながりをたどる」で便を 1 本選ぶと、便 → 路線 → 事業者 → 運行日 → 乗降場所（グループ・区域・停留所、時間帯、予約ルール）を ✔ / ✖ で順に示します。</p>
+  <figure><img src="manual/04_trace.jpg" alt="便をたどる" loading="lazy"><figcaption>便をたどる（福智町）</figcaption></figure>
+</section>
+
+<section>
+  <h2><span class="no">5</span>地図</h2>
+  <table>
+    <tr><th>マウス</th><td>左ドラッグで移動、右ドラッグで回転、ホイールで拡大・縮小</td></tr>
+    <tr><th>指</th><td>1 本で移動。2 本でひねると回転、広げる・狭めると拡大・縮小、横に並べて上下に動かすと傾き</td></tr>
+    <tr><th>右下のボタン</th><td>上から 方角（押すと北が上・真上から）・現在地・拡大・縮小</td></tr>
+    <tr><th>右上</th><td>地図に出す<b>停留所</b>（すべて／全グループ（色分け）／グループに入っていない／グループごと）、地図に出す<b>便</b>、背景の地図（地理院地図の淡色・標準・白地図・写真、OpenStreetMap）と濃さ</td></tr>
+  </table>
+  <ul>
+    <li>便を選ぶと、その便の<b>乗る所・降りる所・両方</b>を色で分け、使う区域以外を薄くします。決まった停留所を回る便は、順番の番号と経路の線を出します</li>
+    <li>区域ポリゴンを押すと、名前・面積・使っている便・乗り降りできる時間帯・予約・その区域の指摘が出ます。区域が重なる所では小さい区域を選び、重なっている区域に切り替えられます</li>
+  </ul>
+  <figure><img src="manual/10_area.jpg" alt="区域ポリゴンを押したときの吹き出し" loading="lazy"><figcaption>海外の例（アスペン）の区域ポリゴンを押したところ</figcaption></figure>
+</section>
+
+<section>
+  <h2><span class="no">6</span>ファイル編集（表・フォーム・テキスト）</h2>
+  <p>「ファイル編集」タブで、ファイルを選んで直接直せます。<b>表</b>（絞り込み・行や列の追加と削除）、<b>フォーム</b>（1 行ずつ、欄の説明つき）、<b>テキスト</b>（CSV をそのまま貼り付け）の 3 通りです。仕様にない列やファイルも残します。</p>
+  <figure><img src="manual/07_table.jpg" alt="予約ルールの表。警告のセルが黄色" loading="lazy"><figcaption>予約ルールの表。警告のあるセルは黄色に橙の線（エラーは赤）。セルに乗せると指摘の文が出ます</figcaption></figure>
+</section>
+
+<section>
+  <h2><span class="no">7</span>変更を確かめる</h2>
+  <p>「変更」タブで、読み込んだときから<b>追加・更新・削除</b>した行の件数と中身を、ファイルごとに見られます。1 件ずつ <span class="btn">元に戻す</span> ことも、<span class="btn">修正を捨てて元に戻す</span> で全部を元に戻すこともできます。</p>
+  <figure><img src="manual/09_changes.jpg" alt="変更タブ" loading="lazy"><figcaption>停留所名を直し、停留所を 1 つ足し、予約ルールの電話番号を入れたところ</figcaption></figure>
+</section>
+
+<section>
+  <h2><span class="no">8</span>書き出す</h2>
+  <p>「③ 書き出す」で形式を選んで <span class="btn">⬇ zip に書き出す</span>。値が空の任意の列は省きます。書き出したデータは、元のデータと比べて編集した所だけが違います。</p>
+  <table>
+    <tr><th>形式</th><td>使いどころ</td></tr>
+    <tr><th>正式版（2024-03〜）</th><td>ODPT への提供など、ふつうはこれ</td></tr>
+    <tr><th>v2 後期ドラフト（2022〜23）</th><td>古い版しか読めないシステム向け</td></tr>
+    <tr><th>v2 初期ドラフト（2020）</th><td>同上</td></tr>
+    <tr><th>Flex を除く</th><td>Google 乗換案内向け（Flex を含むデータは受け付けないため、通常の GTFS だけにする）</td></tr>
+  </table>
+</section>
+
+<section>
+  <h2>使っているデータ</h2>
+  <table>
+    <tr><th>公共交通オープンデータセンター（ODPT）</th><td>デマンド交通（GTFS-Flex）16 件: 五所川原市・前橋市・白馬村（2 件）・福智町・宇美町・宗像市・川越市・紀の川市・安中市・富岡市・昭和村・玉村町・坂井市・平川市・瑞穂町（CC BY 4.0）。「公開データから選ぶ」で開けます</td></tr>
+    <tr><th>地理院タイル（国土地理院）</th><td>地図の背景（淡色地図・標準地図・白地図・写真）</td></tr>
+    <tr><th>OpenStreetMap</th><td>地図の背景（© OpenStreetMap contributors）</td></tr>
+    <tr><th>OpenTripPlanner</th><td>海外の例として開ける GTFS-Flex の試験データ 3 件（アスペン・コブ郡・リンカーン郡）</td></tr>
+  </table>
+  <p>仕様の根拠: <a href="https://gtfs.org/documentation/schedule/reference/" target="_blank" rel="noopener">GTFS Schedule リファレンス</a>、国土交通省「GTFS-JP 4.0 ガイドライン」（2026-03-19）。</p>
+</section>
+
+<footer>公共交通オープンデータチャレンジ2026 応募作品。https://tyra0119.github.io/pj_gtfs/</footer>
+</main>
+</body>
+</html>

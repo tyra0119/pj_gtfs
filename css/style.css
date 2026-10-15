@@ -6,7 +6,9 @@
 html, body { height: 100%; margin: 0; }
 body { font: 14px/1.5 system-ui, -apple-system, "Segoe UI", "Hiragino Sans", "Noto Sans JP", sans-serif; color: var(--text); background: var(--bg); display: flex; flex-direction: column; }
 .topbar { display: flex; align-items: center; gap: 12px; padding: 6px 12px; background: var(--panel); border-bottom: 1px solid var(--line); flex-wrap: wrap; }
-.brand { font-weight: 700; font-size: 15px; }
+.brand { font-weight: 700; font-size: 15px; display: flex; align-items: center; gap: 10px; }
+.brand .howto { font-size: 12px; font-weight: 700; color: var(--primary); border: 1px solid var(--primary); border-radius: 999px; padding: 1px 10px; text-decoration: none; }
+.brand .howto:hover { background: #eaf1fb; }
 .actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 .odpt { display: flex; gap: 4px; align-items: center; }
 .grp { display: flex; flex-direction: column; gap: 2px; padding: 0 10px; border-left: 1px solid var(--line); }

@@ -1,6 +1,6 @@
 # GTFS-Flex 作成・検証ツール（公開版）
 
-https://tyra0119.github.io/pj_gtfs/
+https://tyra0119.github.io/pj_gtfs/ （使い方: https://tyra0119.github.io/pj_gtfs/manual.html ）
 
 デマンド交通の GTFS-Flex データを、ブラウザだけで 検証・編集・作成 するツールです。データはサーバーに送らず、手元のブラウザ内で処理します。
 
@@ -9,4 +9,4 @@ https://tyra0119.github.io/pj_gtfs/
 - サンプル: 公共交通オープンデータセンター（CC BY 4.0）
 - 準拠: GTFS Schedule 仕様（gtfs.org）、国土交通省 COMmmmONS「GTFS-JP 4.0 ガイドライン」第3部 Flex 拡張
 
-版: e4e17e3-mv8yrj69
+版: 37bfc46-mv8zt04n
