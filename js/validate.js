@@ -15,6 +15,26 @@
   // translations.txt がないときの修正案。名前の値ごとに日本語 ja の行（訳は元の値のまま）を作る。読み仮名 ja-Hrkt・英語 en などは、
   // あとからファイル編集の「言語の行を足す」か、読み仮名がないという情報の修正案で足す
   function makeTranslations(feed) { window.GTFS.addTranslations(feed, 'ja', null, true); }
+  // calendar.txt も calendar_dates.txt もないときの修正案。便（trips）の service_id ごとに毎日運行の行を作る。
+  // 期間は feed_info の有効期間、なければ今日から 1 年。便に service_id がなければ "service1" を作って空の便に入れる
+  function calendarPlan(feed) {
+    const R = n => (feed.files[n] ? feed.files[n].rows : []);
+    const fi = R('feed_info.txt')[0] || {}, ok = v => /^\d{8}$/.test(v || '');
+    let start, end, fromFeedInfo = false;
+    if (ok(fi.feed_start_date) && ok(fi.feed_end_date) && fi.feed_start_date <= fi.feed_end_date) { start = fi.feed_start_date; end = fi.feed_end_date; fromFeedInfo = true; }
+    else {
+      const d = new Date(), e = new Date(d.getFullYear() + 1, d.getMonth(), d.getDate() - 1), f = x => x.getFullYear() + String(x.getMonth() + 1).padStart(2, '0') + String(x.getDate()).padStart(2, '0');
+      start = ok(fi.feed_start_date) ? fi.feed_start_date : f(d); end = ok(fi.feed_end_date) && fi.feed_end_date >= start ? fi.feed_end_date : f(e);
+    }
+    const ids = [...new Set(R('trips.txt').map(r => r.service_id).filter(Boolean))];
+    return { ids: ids.length ? ids : ['service1'], start, end, fromFeedInfo, fillTrips: !ids.length };
+  }
+  function makeCalendar(feed) {
+    const p = calendarPlan(feed), t = window.GTFS.ensureTable(feed, 'calendar.txt'); if (t.rows.length) return;
+    const days = { monday: '1', tuesday: '1', wednesday: '1', thursday: '1', friday: '1', saturday: '1', sunday: '1' };
+    for (const id of p.ids) t.rows.push(window.GTFS.newRow('calendar.txt', Object.assign({ service_id: id, start_date: p.start, end_date: p.end }, days)));
+    if (p.fillTrips) for (const r of (feed.files['trips.txt'] ? feed.files['trips.txt'].rows : [])) if (!r.service_id) r.service_id = p.ids[0];
+  }
   function editDistance(a, b) {
     const d = Array.from({ length: a.length + 1 }, (_, i) => [i]);
     for (let j = 1; j <= b.length; j++) d[0][j] = j;
@@ -107,7 +127,7 @@
         for (const [name, spec] of Object.entries(FILES)) {
           if (spec.presence === 'required' && !has(name)) err(name, null, '', `${name}（${spec.label}）がない、または行がない`, 'missing_file');
         }
-        if (!has('calendar.txt') && !has('calendar_dates.txt')) err('calendar.txt', null, '', 'calendar.txt か calendar_dates.txt のどちらかが必要', 'missing_calendar');
+        if (!has('calendar.txt') && !has('calendar_dates.txt')) { const cal = calendarPlan(c.feed); err('calendar.txt', null, '', 'calendar.txt か calendar_dates.txt のどちらかが必要', 'missing_calendar', { label: `calendar.txt を作る（便の運行日ID ${cal.ids.slice(0, 3).map(x => '"' + x + '"').join('・')}${cal.ids.length > 3 ? ` ほか ${cal.ids.length - 3} 個` : ''} ごとに毎日運行、期間 ${cal.start}〜${cal.end}${cal.fromFeedInfo ? '（feed_info の有効期間）' : '（今日から 1 年）'}。曜日と期間は確かめて直す）`, safe: false, apply: feed => makeCalendar(feed) }); }
         if (!has('feed_info.txt')) (c.profile === 'intl' ? info : err)('feed_info.txt', null, '', c.profile === 'intl' ? 'feed_info.txt がない（国際仕様では任意。公開するなら入れる）' : 'feed_info.txt がない（GTFS-JP と ODPT への提供では必須）', 'missing_feed_info', { label: 'agency.txt の内容から feed_info.txt を作る', safe: true, apply: feed => { const a = (feed.files['agency.txt'] && feed.files['agency.txt'].rows[0]) || {}; const t = window.GTFS.ensureTable(feed, 'feed_info.txt'); if (!t.rows.length) t.rows.push(window.GTFS.newRow('feed_info.txt', { feed_publisher_name: a.agency_name || '', feed_publisher_url: a.agency_url || '', feed_lang: 'ja' })); } });
         if (!has('stops.txt') && !c.locs.length && !has('location_groups.txt')) err('stops.txt', null, '', 'stops.txt がない（区域だけのデータでも locations.geojson が要る）', 'missing_file');
         if (feed_bad_geojson(c)) return;

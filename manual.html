@@ -114,7 +114,7 @@ a { color: var(--accent); }
   <p>編集すると自動で検証します（<span class="btn">✔ 検証する</span> でいつでも）。指摘は「検証」タブに、<span class="err">エラー</span>・<span class="warn">警告</span>・情報 の順で並びます。押すとその行・欄へ移り、<span class="btn">← 検証結果に戻る</span> で戻れます。</p>
   <figure><img src="manual/02_validate.jpg" alt="検証の一覧と、便を選んだ地図" loading="lazy"><figcaption>福智町（ODPT）の検証の一覧。修正案の <span class="btn">適用</span> で直ります</figcaption></figure>
   <ul>
-    <li><b>検証の規則</b>は 13 分類（仕様の必須・条件・型、ファイル間の参照、事業者、停留所、路線、運行日、区域、グループ、予約ルール、時刻と乗降時間帯、翻訳、GTFS-JP の決まり、使われていないもの）。翻訳（translations.txt）は、table_name が訳せる表か（stops・routes など。.txt は付けない）、field_name がその表の列か、record_id か field_value のどちらか一方で行を指しているか、指した行があるかを見ます。打ち間違いには「stops にする」のような修正案が付きます。translations.txt がないときは、事業者名・停留所名・路線名・行き先の日本語（ja）の行を作る修正案が付きます。読み仮名（ja-Hrkt）の行がない停留所名があると、その件数が「情報」に出て、読み仮名の行を足す修正案が付きます。「検証の規則」から外すこともできます</li>
+    <li><b>検証の規則</b>は 13 分類（仕様の必須・条件・型、ファイル間の参照、事業者、停留所、路線、運行日、区域、グループ、予約ルール、時刻と乗降時間帯、翻訳、GTFS-JP の決まり、使われていないもの）。翻訳（translations.txt）は、table_name が訳せる表か（stops・routes など。.txt は付けない）、field_name がその表の列か、record_id か field_value のどちらか一方で行を指しているか、指した行があるかを見ます。打ち間違いには「stops にする」のような修正案が付きます。translations.txt がないときは、事業者名・停留所名・路線名・行き先の日本語（ja）の行を作る修正案が付きます。読み仮名（ja-Hrkt）の行がない停留所名があると、その件数が「情報」に出て、読み仮名の行を足す修正案が付きます。calendar.txt も calendar_dates.txt もないときは、便の運行日 ID（service_id）ごとに毎日運行の calendar.txt を作る修正案が付きます。期間は feed_info の有効期間（なければ今日から 1 年）です。曜日と期間は、作ったあとで確かめて直してください。「検証の規則」から外すこともできます</li>
     <li><b>基準</b>を選べます: GTFS-JP v4（2026-03）・GTFS-JP 第 3 版・国際仕様のみ。海外のデータを開くと、自動で国際仕様になります</li>
     <li><b>修正案</b>を 1 件ずつ、または <span class="btn">安全な修正案をまとめて適用</span>（値の整形など。行の削除は含みません）</li>
     <li>同じ種類の指摘がたくさんあるときは 1 つにまとめ、件数と理由を出します。使われていない停留所は「まとめて消す」か「グループに入れる」を選べます</li>
