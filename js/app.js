@@ -7,7 +7,7 @@
   const popDoc = () => (popped && pop && !pop.closed ? pop.document : null);
   const $ = s => document.querySelector(s) || (popDoc() ? popDoc().querySelector(s) : null);
   const qa = s => [...document.querySelectorAll(s), ...(popDoc() ? popDoc().querySelectorAll(s) : [])];
-  const el = (tag, attrs, ...kids) => { const e = document.createElement(tag); if (attrs) for (const [k, v] of Object.entries(attrs)) { if (k === 'class') e.className = v; else if (k.startsWith('on')) e.addEventListener(k.slice(2), v); else if (k === 'html') e.innerHTML = v; else e.setAttribute(k, v); } for (const k of kids) if (k != null) e.append(k); return e; };
+  const el = (tag, attrs, ...kids) => { const e = document.createElement(tag); if (attrs) for (const [k, v] of Object.entries(attrs)) { if (v == null) continue; if (k === 'class') e.className = v; else if (k.startsWith('on')) e.addEventListener(k.slice(2), v); else if (k === 'html') e.innerHTML = v; else e.setAttribute(k, v); } for (const k of kids) if (k != null) e.append(k); return e; };
 
   const S = {
     feed: null, original: null, name: '', issues: [], dirty: false, diff: null, diffFile: '',
@@ -53,17 +53,16 @@
       if (done) changed();
       M.setLocations(S.feed.locations, S.loc);
     },
-    onVertexInsert(ring, index, ll) {
+    // 頂点を足す（辺の真ん中の点をドラッグ・押す）。done: 押して足したとき（ドラッグは動かし終わりで変更とする）
+    onVertexInsert(ring, index, ll, done) {
       const f = S.feed.locations && S.feed.locations.features[S.loc]; if (!f) return;
       f.geometry.coordinates[ring].splice(index, 0, ll);
+      closeVertPopup();
+      if (done) { changed(); renderZones(); }
       M.setLocations(S.feed.locations, S.loc);
     },
-    onVertexDelete(ring, index) {
-      const f = S.feed.locations && S.feed.locations.features[S.loc]; if (!f) return;
-      const r = f.geometry.coordinates[ring]; if (r.length <= 4) return;
-      r.splice(index, 1); if (index === 0) r[r.length - 1] = r[0].slice();
-      changed(); M.setLocations(S.feed.locations, S.loc);
-    },
+    onVertexDelete(ring, index) { deleteVertex(ring, index); },
+    onVertexClick(ring, index, ll) { showVertPopup(ring, index, ll); },
     // 区域を押したら選んで吹き出しを出す。重なっていれば一番小さい区域（大きな区域の中の小さな区域を押せるように）
     onLocationClick(i, ll, all) {
       const feats = (S.feed && S.feed.locations && S.feed.locations.features) || [];
@@ -722,6 +721,12 @@
       const e = S.issues.filter(i => i.file === n && i.level === 'error').length, w = S.issues.filter(i => i.file === n && i.level === 'warn').length;
       sel.append(el('option', { value: n, class: e ? 'opt-err' : w ? 'opt-warn' : '' }, `${e ? '✖ ' : w ? '△ ' : ''}${n}（${SPEC.FILES[n] ? SPEC.FILES[n].label : '仕様外'}・${S.feed.files[n].rows.length} 行${e ? '・エラー ' + e : ''}${w ? '・警告 ' + w : ''}）`));
     }
+    // 区域ポリゴン（locations.geojson）は表ではないが、同じ選択欄から開けるようにする
+    if (S.feed.locations) {
+      const n = 'locations.geojson', e = S.issues.filter(i => i.file === n && i.level === 'error').length, w = S.issues.filter(i => i.file === n && i.level === 'warn').length;
+      sel.append(el('option', { value: n, class: e ? 'opt-err' : w ? 'opt-warn' : '' }, `${e ? '✖ ' : w ? '△ ' : ''}${n}（区域ポリゴン・${(S.feed.locations.features || []).length} 件${e ? '・エラー ' + e : ''}${w ? '・警告 ' + w : ''}）`));
+      names.push(n);
+    }
     if (!names.includes(S.file)) S.file = names[0] || '';
     sel.value = S.file;
   }
@@ -730,9 +735,10 @@
   qa('.modes button').forEach(b => b.addEventListener('click', () => { S.mode = b.dataset.mode; qa('.modes button').forEach(x => x.classList.toggle('active', x === b)); renderEditor(); }));
   $('#btnAddFile').addEventListener('click', () => {
     if (!S.feed) return;
-    const cands = SPEC.ORDER.filter(n => !S.feed.files[n]);
+    const cands = SPEC.ORDER.filter(n => !S.feed.files[n]).concat(S.feed.locations ? [] : ['locations.geojson']);
     const name = prompt('足すファイル名（候補: ' + cands.join(', ') + '）\n仕様にない名前でも構いません。', cands[0] || '');
     if (!name) return;
+    if (name.trim() === 'locations.geojson') { if (!S.feed.locations) S.feed.locations = { type: 'FeatureCollection', features: [] }; S.file = 'locations.geojson'; changed(); fillFileSelect(); renderEditor(); return; }
     const n = name.endsWith('.txt') ? name : name + '.txt';
     G.ensureTable(S.feed, n); S.file = n; changed(); fillFileSelect(); renderEditor();
   });
@@ -741,6 +747,7 @@
     const box = $('#editor'); box.innerHTML = '';
     if (popDoc()) { const pn = popDoc().getElementById('popName'); if (pn) pn.textContent = S.name || ''; }
     if (!S.feed || !S.file) return;
+    if (S.file === 'locations.geojson') { renderGeo(box); return; }
     if (S.mode === 'table') renderTable(box);
     else if (S.mode === 'form') renderForm(box);
     else renderText(box);
@@ -977,6 +984,73 @@
     if (S.file === 'booking_rules.txt') applyBookingEnable();
   }
 
+  // ---------- ファイル編集: 区域ポリゴン（locations.geojson）----------
+  // 表: 区域ごとに id・名前などの欄と、形・頂点の数、地図で見る・消す。フォーム: 1 区域ずつ。テキスト: GeoJSON をそのまま
+  function renderGeo(box) {
+    const fc = S.feed.locations || { type: 'FeatureCollection', features: [] }; const feats = fc.features || [];
+    if (S.mode === 'text') {
+      const ta = el('textarea', { class: 'csv', spellcheck: 'false' }); ta.value = JSON.stringify(fc, null, 1);
+      const msg = el('span', { class: 'muted' }, 'GeoJSON をそのまま編集できます（FeatureCollection）。「反映」で区域に戻します。');
+      box.append(el('div', { class: 'tablebar' }, el('button', { class: 'btn small primary', onclick: () => {
+        let v; try { v = JSON.parse(ta.value); } catch (e) { alert('GeoJSON として読めません: ' + e.message); return; }
+        if (!v || v.type !== 'FeatureCollection' || !Array.isArray(v.features)) { alert('type が FeatureCollection で、features の配列がある形にしてください'); return; }
+        S.feed.locations = v; S.loc = Math.min(S.loc, v.features.length - 1);
+        changed(); fillFileSelect(); renderEditor(); renderZones(); renderTrips(); refreshMap(false);
+      } }, '反映'), msg), ta);
+      return;
+    }
+    const propInput = (f, name, onchange) => {
+      const inp = el('input', { value: name === 'id' ? (f.id == null ? '' : String(f.id)) : ((f.properties || {})[name] || '') });
+      const put = () => { const v = inp.value.trim(); if (name === 'id') f.id = v; else { f.properties = f.properties || {}; if (v) f.properties[name] = v; else delete f.properties[name]; } changed(); };
+      inp.addEventListener('input', put);
+      inp.addEventListener('change', () => { put(); if (onchange) onchange(); renderZones(); refreshMap(false); validateNow(); });
+      return inp;
+    };
+    const shape = f => { const g = f.geometry; if (!g) return ['形なし', 0]; const pts = g.type === 'Polygon' ? g.coordinates.reduce((a, r) => a + r.length - 1, 0) : g.type === 'MultiPolygon' ? g.coordinates.reduce((a, p) => a + p.reduce((b, r) => b + r.length - 1, 0), 0) : 0; return [g.type, pts]; };
+    const view = i => { S.loc = i; setTab('zones'); renderZones(); refreshMap(false); const f = feats[i]; if (f) M.fitTo([f]); };
+    const del = i => { if (deleteLocation(i)) { fillFileSelect(); renderEditor(); } };
+    const props = SPEC.LOCATION_PROPS;
+    if (S.mode === 'form') {
+      if (!feats.length) { box.append(el('p', { class: 'muted' }, '区域がありません。「区域・停留所」タブの「地図に描く」「なぞって描く」で作れます。')); return; }
+      if (S.formIndex >= feats.length) S.formIndex = feats.length - 1;
+      const i = S.formIndex, f = feats[i], [gt, np] = shape(f);
+      box.append(el('div', { class: 'formnav' },
+        el('button', { class: 'btn small', onclick: () => { S.formIndex = Math.max(0, i - 1); renderEditor(); } }, '‹ 前'),
+        el('span', null, `${i + 1} / ${feats.length} 件目`),
+        el('button', { class: 'btn small', onclick: () => { S.formIndex = Math.min(feats.length - 1, i + 1); renderEditor(); } }, '次 ›'),
+        el('button', { class: 'btn small', onclick: () => view(i) }, '地図で見る'),
+        el('button', { class: 'btn small danger', onclick: () => del(i) }, '消す')));
+      const form = el('div', { class: 'form' }); const inputs = {};
+      form.append(el('label', { title: '必須' }, '区域ID ', el('small', { class: 'muted' }, 'id'), el('span', { class: 'req' }, ' *')), inputs.id = propInput(f, 'id', () => renderEditor()));
+      for (const p of props) form.append(el('label', null, p.label + ' ', el('small', { class: 'muted' }, p.name)), inputs[p.name] = propInput(f, p.name));
+      form.append(el('label', null, '形'), el('div', { class: 'muted' }, `${gt}・頂点 ${np}（形は「区域・停留所」タブの地図で直す）`));
+      box.append(form); inputs.geometry = form.lastChild;
+      markForm(form, 'locations.geojson', i, inputs, form);
+      return;
+    }
+    const bar = el('div', { class: 'tablebar' }, el('span', { class: 'muted' }, `区域 ${feats.length} 件。形は「区域・停留所」タブの地図で描く・直す。名前などはここで直せます`));
+    box.append(bar);
+    const wrap = el('div', { class: 'tablewrap' }); const table = el('table', { class: 'grid' });
+    const cols = ['id'].concat(props.map(p => p.name));
+    const head = el('tr', null, el('th', null, '#'));
+    head.append(el('th', { 'data-col': 'id', class: 'req' }, el('div', { class: 'thin' }, 'id', el('span', { class: 'req' }, ' *'), el('small', null, '区域ID'))));
+    for (const p of props) head.append(el('th', { 'data-col': p.name }, el('div', { class: 'thin' }, p.name, el('small', null, p.label))));
+    head.append(el('th', { 'data-col': 'geometry' }, el('div', { class: 'thin' }, 'geometry', el('small', null, '形・頂点'))), el('th', null, ''));
+    table.append(el('thead', null, head));
+    const tbody = el('tbody');
+    feats.forEach((f, i) => {
+      const [gt, np] = shape(f);
+      const tr = el('tr', { 'data-row': i, class: i === S.loc ? 'cur' : '' });
+      tr.append(el('td', { class: 'rownum' }, String(i + 2)));
+      for (const c of cols) tr.append(el('td', { 'data-col': c }, propInput(f, c, c === 'id' ? () => fillFileSelect() : null)));
+      tr.append(el('td', { 'data-col': 'geometry', class: 'geo' }, `${gt}・${np} 点 `, el('button', { class: 'btn small', onclick: () => view(i) }, '地図で見る')));
+      tr.append(el('td', { class: 'del' }, el('button', { title: 'この区域を消す（使っている便の行も）', onclick: () => del(i) }, '✕')));
+      tbody.append(tr);
+    });
+    table.append(tbody); wrap.append(table); box.append(wrap);
+    if (!feats.length) box.append(el('p', { class: 'muted' }, '区域がありません。「区域・停留所」タブの「地図に描く」「なぞって描く」で作れます。'));
+    markBadCells();
+  }
   function renderText(box) {
     const t = S.feed.files[S.file];
     const ta = el('textarea', { class: 'csv', spellcheck: 'false' });
@@ -1142,6 +1216,35 @@
   }
   // 停留所を選ぶ。地図のクリック、「停留所を探す」、表からの移動で共通に使う
   let stopPopup = null, locPopup = null;
+  // ---------- 区域の頂点 ----------
+  // 頂点を押すと吹き出し（何番目の頂点か・消す）。消すのは吹き出しのボタン、右クリック、Delete キー。外周は 3 点より少なくできない
+  let vertPopup = null;
+  function closeVertPopup() { if (vertPopup) { vertPopup.remove(); vertPopup = null; } }
+  function deleteVertex(ring, index) {
+    const f = S.feed.locations && S.feed.locations.features[S.loc]; if (!f || !f.geometry || f.geometry.type !== 'Polygon') return false;
+    const r = f.geometry.coordinates[ring]; if (!r || r.length <= 4) { alert('区域の外周は 3 点より少なくできません'); return false; }
+    r.splice(index, 1); if (index === 0) r[r.length - 1] = r[0].slice();
+    closeVertPopup(); M.state.selVert = null;
+    changed(); renderZones(); M.setLocations(S.feed.locations, S.loc);
+    return true;
+  }
+  function showVertPopup(ring, index, ll) {
+    closeVertPopup(); closePopups();
+    const f = S.feed.locations && S.feed.locations.features[S.loc]; if (!f) return;
+    const n = f.geometry.coordinates[ring].length - 1;
+    M.setLocations(S.feed.locations, S.loc); // 選んだ頂点を色で示す
+    vertPopup = new maplibregl.Popup({ offset: 10, maxWidth: '260px', focusAfterOpen: false }).setLngLat(ll).setDOMContent(el('div', { class: 'stop-popup vert-popup' },
+      el('b', null, `頂点 ${index + 1} / ${n}`), el('div', { class: 'muted small' }, ring ? `穴 ${ring} の頂点` : '外周の頂点'),
+      el('div', { class: 'small' }, 'ドラッグで動かす。辺の真ん中の小さな点を押すと頂点を足す'),
+      el('div', { class: 'row' }, el('button', { class: 'btn small danger', onclick: () => deleteVertex(ring, index), disabled: n <= 3 ? '' : null }, 'この頂点を消す'), n <= 3 ? el('span', { class: 'muted small' }, '（3 点より少なくできません）') : null))).addTo(M.map);
+    vertPopup._v = { ring, index };
+  }
+  document.addEventListener('keydown', e => {
+    const tg = e.target && e.target.tagName;
+    if ((e.key === 'Delete' || e.key === 'Backspace') && M.state.selVert && M.getMode() === 'none' && !/^(INPUT|TEXTAREA|SELECT)$/.test(tg || '') && !(e.target && e.target.isContentEditable)) {
+      if (deleteVertex(M.state.selVert.ring, M.state.selVert.index)) e.preventDefault();
+    }
+  });
   // 地図に置ける座標か（空・数でない・緯度 ±90／経度 ±180 の外は置けない）
   function okLL(r) { const a = parseFloat(r.stop_lat), o = parseFloat(r.stop_lon); return r.stop_lat !== '' && r.stop_lon !== '' && !isNaN(a) && !isNaN(o) && Math.abs(a) <= 90 && Math.abs(o) <= 180; }
   function closeLocPopup() { if (locPopup) { locPopup.remove(); locPopup = null; } }

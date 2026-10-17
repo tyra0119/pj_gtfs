@@ -15,7 +15,7 @@
   };
 
   function create(container, handlers) {
-    const H = Object.assign({ onStopClick() {}, onMapClick() {}, onStopMoved() {}, onPolygonDone() {}, onVertexMoved() {}, onVertexInsert() {}, onVertexDelete() {}, onLocationClick() {} }, handlers || {});
+    const H = Object.assign({ onStopClick() {}, onMapClick() {}, onStopMoved() {}, onPolygonDone() {}, onVertexMoved() {}, onVertexInsert() {}, onVertexDelete() {}, onVertexClick() {}, onLocationClick() {} }, handlers || {});
     const map = new maplibregl.Map({
       container,
       style: {
@@ -52,7 +52,7 @@
       map.addLayer({ id: 'draft-fill', type: 'fill', source: 'draft', paint: { 'fill-color': '#f0a030', 'fill-opacity': 0.15 } });
       map.addLayer({ id: 'draft-line', type: 'line', source: 'draft', paint: { 'line-color': '#d07000', 'line-width': 2, 'line-dasharray': [2, 1] } });
       map.addSource('verts', { type: 'geojson', data: empty() });
-      map.addLayer({ id: 'verts', type: 'circle', source: 'verts', paint: { 'circle-radius': 6, 'circle-color': '#fff', 'circle-stroke-color': '#d07000', 'circle-stroke-width': 2 } });
+      map.addLayer({ id: 'verts', type: 'circle', source: 'verts', filter: ['==', ['get', 'kind'], 'vert'], paint: { 'circle-radius': ['case', ['boolean', ['get', '_sel'], false], 8, 6], 'circle-color': ['case', ['boolean', ['get', '_sel'], false], '#d07000', '#fff'], 'circle-stroke-color': '#d07000', 'circle-stroke-width': 2 } });
       map.addLayer({ id: 'mids', type: 'circle', source: 'verts', filter: ['==', ['get', 'kind'], 'mid'], paint: { 'circle-radius': 4, 'circle-color': '#fde', 'circle-stroke-color': '#d07000', 'circle-stroke-width': 1 } });
       map.addSource('stops', { type: 'geojson', data: empty() });
       map.addLayer({ id: 'stops', type: 'circle', source: 'stops', paint: {
@@ -90,8 +90,15 @@
       map.on('click', e => {
         if (state.mode === 'draw') { state.draft.push([e.lngLat.lng, e.lngLat.lat]); renderDraft(); return; }
         if (state.mode === 'addStop') { H.onMapClick(e.lngLat); return; }
-        const verts = map.queryRenderedFeatures(e.point, { layers: ['verts'] });
-        if (verts.length) return;
+        // 頂点を押す → 吹き出し（消す）。辺の真ん中の点を押す → そこに頂点を足す
+        const vhit = map.queryRenderedFeatures(e.point, { layers: ['verts', 'mids'] });
+        if (vhit.length) {
+          const v = vhit.find(f => f.properties.kind === 'vert'), mid = vhit.find(f => f.properties.kind === 'mid');
+          if (v) { state.selVert = { ring: v.properties.ring, index: v.properties.index }; H.onVertexClick(v.properties.ring, v.properties.index, v.geometry.coordinates); }
+          else if (mid) { state.selVert = null; H.onVertexInsert(mid.properties.ring, mid.properties.index + 1, mid.geometry.coordinates.slice(), true); }
+          return;
+        }
+        state.selVert = null;
         const stops = map.queryRenderedFeatures(e.point, { layers: ['stops'] });
         if (stops.length) { H.onStopClick(stops[0].properties.stop_id, e); return; }
         const locs = map.queryRenderedFeatures(e.point, { layers: ['loc-fill'] });
@@ -108,7 +115,7 @@
 
       // 頂点・停留所のドラッグ（マウスとタッチ）
       const startDrag = (e, kind) => {
-        const feats = map.queryRenderedFeatures(e.point, { layers: [kind === 'vert' ? 'verts' : 'stops'] });
+        const feats = map.queryRenderedFeatures(e.point, { layers: kind === 'vert' ? ['verts', 'mids'] : ['stops'] });
         if (!feats.length) return false;
         const p = feats[0].properties;
         if (kind === 'stop' && state.mode !== 'moveStop') return false;
@@ -236,7 +243,8 @@
       const feats = [];
       f.geometry.coordinates.forEach((ring, ri) => {
         for (let i = 0; i < ring.length - 1; i++) {
-          feats.push({ type: 'Feature', properties: { kind: 'vert', ring: ri, index: i }, geometry: { type: 'Point', coordinates: ring[i] } });
+          const sel = !!(state.selVert && state.selVert.ring === ri && state.selVert.index === i);
+          feats.push({ type: 'Feature', properties: { kind: 'vert', ring: ri, index: i, _sel: sel }, geometry: { type: 'Point', coordinates: ring[i] } });
           const a = ring[i], b = ring[i + 1];
           feats.push({ type: 'Feature', properties: { kind: 'mid', ring: ri, index: i }, geometry: { type: 'Point', coordinates: [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2] } });
         }

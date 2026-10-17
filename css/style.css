@@ -75,6 +75,8 @@ input:invalid { border-color: var(--err); }
 .pophost .tablewrap { flex: 1; }
 .popnote { display: flex; flex-direction: column; gap: 8px; padding: 16px; margin-top: 8px; border: 1px dashed var(--line); border-radius: 8px; background: var(--panel); }
 .popnote .row { display: flex; gap: 8px; }
+table.grid td.geo { padding: 2px 6px; white-space: nowrap; font-size: 12px; }
+.vert-popup .row { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
 .modes button { padding: 3px 8px; border: 1px solid var(--line); background: #fff; cursor: pointer; font: inherit; }
 .modes button:first-child { border-radius: 6px 0 0 6px; }
 .modes button:last-child { border-radius: 0 6px 6px 0; }
