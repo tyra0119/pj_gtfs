@@ -10,6 +10,14 @@
   const { parseTime } = window.GTFS;
 
   const JP = { latMin: 20, latMax: 46, lonMin: 122, lonMax: 154 };
+  // translations.txt の table_name に書ける表 → [ファイル, record_id の列, record_sub_id の列]（GTFS Schedule Reference）
+  const TRANSLATION_TABLES = { agency: ['agency.txt', 'agency_id'], stops: ['stops.txt', 'stop_id'], routes: ['routes.txt', 'route_id'], trips: ['trips.txt', 'trip_id'], stop_times: ['stop_times.txt', 'trip_id', 'stop_sequence'], pathways: ['pathways.txt', 'pathway_id'], levels: ['levels.txt', 'level_id'], feed_info: ['feed_info.txt', null], attributions: ['attributions.txt', 'attribution_id'] };
+  function editDistance(a, b) {
+    const d = Array.from({ length: a.length + 1 }, (_, i) => [i]);
+    for (let j = 1; j <= b.length; j++) d[0][j] = j;
+    for (let i = 1; i <= a.length; i++) for (let j = 1; j <= b.length; j++) d[i][j] = Math.min(d[i - 1][j] + 1, d[i][j - 1] + 1, d[i - 1][j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+    return d[a.length][b.length];
+  }
 
   // ---------- 文脈 ----------
   // 検証の基準: 'jp4'（GTFS-JP v4、既定）/ 'jp3'（GTFS-JP 第3版）/ 'intl'（国際仕様のみ）
@@ -379,6 +387,54 @@
         }
         const tripIds = ids['trips.txt'] || new Map();
         for (const [tid, i] of tripIds) if (!byTrip.has(tid)) err('trips.txt', i, 'trip_id', `便 "${tid}" に stop_times.txt の行がない`, 'trip_empty', c.delRow('trips.txt', R('trips.txt')[i], `便 "${tid}" を消す`));
+      },
+    },
+    {
+      // 根拠: GTFS Schedule Reference「translations.txt」。table_name・field_name が実在するか、record_id / field_value の書き方、訳す先の行があるか
+      id: 'translations', label: '翻訳（translations.txt）の表・列・行', run(c) {
+        const { F, R, err, warn, info } = c;
+        const rows = R('translations.txt');
+        if (!rows.length || !F['translations.txt'].header.includes('table_name')) return; // 旧形式（trans_id, lang）は仕様の検査に任せる
+        const T = 'translations.txt';
+        const near = (v, list) => { // 大文字小文字の違い・2 文字以内の打ち間違いなら候補を返す
+          const lo = v.toLowerCase(); const same = list.find(x => x.toLowerCase() === lo); if (same) return same;
+          let best = null, bd = 3;
+          for (const x of list) { const d = editDistance(lo, x.toLowerCase()); if (d < bd) { bd = d; best = x; } }
+          return best;
+        };
+        const tables = Object.keys(TRANSLATION_TABLES);
+        const seen = new Map();
+        rows.forEach((r, i) => {
+          const tn = r.table_name || '', fn = r.field_name || '';
+          if (!tn) return; // 空は仕様の検査（必須の欄）で出る
+          if (!TRANSLATION_TABLES[tn]) {
+            const cand = TRANSLATION_TABLES[tn.replace(/\.txt$/i, '')] ? tn.replace(/\.txt$/i, '') : near(tn.replace(/\.txt$/i, ''), tables);
+            err(T, i, 'table_name', `table_name "${tn}" は訳せる表ではない（${tables.join(' / ')} のどれか。.txt は付けない）`, 'tr_table', cand ? c.setVal(r, 'table_name', cand, `table_name を "${cand}" にする`, cand.toLowerCase() === tn.replace(/\.txt$/i, '').toLowerCase()) : c.delRow(T, r, 'この翻訳の行を消す'));
+            return;
+          }
+          const [file, idCol, subCol] = TRANSLATION_TABLES[tn];
+          const spec = FILES[file], tgt = F[file];
+          if (fn) {
+            const cols = [...new Set([...spec.fields.map(x => x.name), ...(tgt ? tgt.header : [])])];
+            if (!cols.includes(fn)) { const cand = near(fn, spec.fields.filter(x => x.type === 'text').map(x => x.name)); err(T, i, 'field_name', `field_name "${fn}" は ${file} の列ではない`, 'tr_field', cand ? c.setVal(r, 'field_name', cand, `field_name を "${cand}" にする`) : c.delRow(T, r, 'この翻訳の行を消す')); return; }
+          }
+          const rid = r.record_id || '', sub = r.record_sub_id || '', fv = r.field_value || '';
+          if (!idCol) { // feed_info は行が 1 つなので、どの行かを書かない
+            if (rid || sub || fv) err(T, i, rid ? 'record_id' : sub ? 'record_sub_id' : 'field_value', `table_name が feed_info のときは record_id・record_sub_id・field_value を空にする`, 'tr_forbidden', { label: 'record_id・record_sub_id・field_value を空にする', safe: true, apply: () => { r.record_id = ''; r.record_sub_id = ''; r.field_value = ''; } });
+          } else if (rid && fv) err(T, i, 'field_value', `record_id と field_value は片方だけ書く（record_id "${rid}" と field_value "${fv}" が両方ある）`, 'tr_both', c.setVal(r, 'field_value', '', 'field_value を空にする（record_id で行を指す）'));
+          else if (!rid && !fv) err(T, i, 'record_id', `record_id か field_value のどちらかが必要（どの行の訳か分からない）`, 'tr_no_target');
+          else if (!rid && sub) err(T, i, 'record_sub_id', `field_value で指すときは record_sub_id を空にする`, 'tr_forbidden', c.setVal(r, 'record_sub_id', '', 'record_sub_id を空にする', true));
+          else if (rid && subCol && !sub) err(T, i, 'record_sub_id', `table_name が ${tn} で record_id があるときは record_sub_id（${subCol}）が必要`, 'tr_sub_required');
+          else if (rid && !subCol && sub) warn(T, i, 'record_sub_id', `table_name が ${tn} のときは record_sub_id を使わない`, 'tr_forbidden', c.setVal(r, 'record_sub_id', '', 'record_sub_id を空にする', true));
+          else if (!tgt || !tgt.rows.length) warn(T, i, 'table_name', `訳す先の ${file} がない、または行がない`, 'tr_no_file', c.delRow(T, r, 'この翻訳の行を消す'));
+          else if (rid) {
+            const hit = tgt.rows.some(x => x[idCol] === rid && (!subCol || x[subCol] === sub));
+            if (!hit) warn(T, i, 'record_id', `${file} に ${idCol} "${rid}"${subCol ? `・${subCol} ${sub}` : ''} の行がない（訳す先がない）`, 'tr_record', c.delRow(T, r, 'この翻訳の行を消す'));
+          } else if (fn && !tgt.rows.some(x => x[fn] === fv)) info(T, i, 'field_value', `${file} の ${fn} に "${fv}" がない（使われない訳）`, 'tr_value', c.delRow(T, r, 'この翻訳の行を消す'));
+          const k = [tn, fn, r.language, rid, sub, fv].join('\u0001');
+          if (seen.has(k)) warn(T, i, 'translation', `同じ表・列・言語・行の訳が 2 つある（${seen.get(k) + 2} 行目と同じ）`, 'tr_dup', c.delRow(T, r, '重複した行を消す'));
+          else seen.set(k, i);
+        });
       },
     },
     {
