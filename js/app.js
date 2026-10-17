@@ -50,7 +50,7 @@
     onVertexMoved(ring, index, ll, done) {
       const f = S.feed.locations && S.feed.locations.features[S.loc]; if (!f) return;
       const r = f.geometry.coordinates[ring]; r[index] = ll; if (index === 0) r[r.length - 1] = ll.slice();
-      if (done) changed();
+      if (done) { changed(); shapeChanged(); }
       M.setLocations(S.feed.locations, S.loc);
     },
     // 頂点を足す（辺の真ん中の点をドラッグ・押す）。done: 押して足したとき（ドラッグは動かし終わりで変更とする）
@@ -58,7 +58,7 @@
       const f = S.feed.locations && S.feed.locations.features[S.loc]; if (!f) return;
       f.geometry.coordinates[ring].splice(index, 0, ll);
       closeVertPopup();
-      if (done) { changed(); renderZones(); }
+      if (done) { changed(); shapeChanged(); }
       M.setLocations(S.feed.locations, S.loc);
     },
     onVertexDelete(ring, index) { deleteVertex(ring, index); },
@@ -1225,9 +1225,11 @@
     const r = f.geometry.coordinates[ring]; if (!r || r.length <= 4) { alert('区域の外周は 3 点より少なくできません'); return false; }
     r.splice(index, 1); if (index === 0) r[r.length - 1] = r[0].slice();
     closeVertPopup(); M.state.selVert = null;
-    changed(); renderZones(); M.setLocations(S.feed.locations, S.loc);
+    changed(); shapeChanged(); M.setLocations(S.feed.locations, S.loc);
     return true;
   }
+  // 区域の形が変わったら、頂点の数を出している所（区域の欄・ファイル編集の区域の表）を描き直す
+  function shapeChanged() { renderZones(); if (filesShown() && S.file === 'locations.geojson') renderEditor(); }
   function showVertPopup(ring, index, ll) {
     closeVertPopup(); closePopups();
     const f = S.feed.locations && S.feed.locations.features[S.loc]; if (!f) return;

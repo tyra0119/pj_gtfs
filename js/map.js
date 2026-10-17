@@ -119,13 +119,16 @@
         if (!feats.length) return false;
         const p = feats[0].properties;
         if (kind === 'stop' && state.mode !== 'moveStop') return false;
-        state.drag = { kind, p };
+        state.drag = { kind, p, x: e.point.x, y: e.point.y, moved: false };
         map.dragPan.disable();
         e.preventDefault();
         return true;
       };
+      // 3 ピクセル以上動かしたらドラッグ。動かさずに離したときは「押した」として click に任せる
+      // （前は、辺の真ん中の点を押すと離したときに隣の頂点がその位置へ動き、続く click がその頂点を押したことになって頂点が増えなかった）
       const moveDrag = e => {
         if (!state.drag) return;
+        if (!state.drag.moved) { if (Math.hypot(e.point.x - state.drag.x, e.point.y - state.drag.y) < 3) return; state.drag.moved = true; }
         const ll = [e.lngLat.lng, e.lngLat.lat];
         if (state.drag.kind === 'vert') {
           if (state.drag.p.kind === 'mid') { H.onVertexInsert(state.drag.p.ring, state.drag.p.index + 1, ll); state.drag.p = Object.assign({}, state.drag.p, { kind: 'vert', index: state.drag.p.index + 1 }); }
@@ -134,12 +137,13 @@
       };
       const endDrag = e => {
         if (!state.drag) return;
+        if (!state.drag.moved) { state.drag = null; map.dragPan.enable(); return; }
         if (state.drag.kind === 'stop') H.onStopMoved(state.drag.p.stop_id, [e.lngLat.lng, e.lngLat.lat], true);
         else H.onVertexMoved(state.drag.p.ring, state.drag.p.index, [e.lngLat.lng, e.lngLat.lat], true);
         state.drag = null;
         map.dragPan.enable();
       };
-      map.on('mousedown', e => { if (e.originalEvent.button !== 0) return; if (startDrag(e, 'vert') || startDrag(e, 'stop')) { map.on('mousemove', moveDrag); map.once('mouseup', ev => { map.off('mousemove', moveDrag); endDrag(ev); }); } });
+      map.on('mousedown', e => { if (e.originalEvent.button !== 0 || state.mode === 'freehand' || state.mode === 'draw') return; if (startDrag(e, 'vert') || startDrag(e, 'stop')) { map.on('mousemove', moveDrag); map.once('mouseup', ev => { map.off('mousemove', moveDrag); endDrag(ev); }); } });
       map.on('touchstart', e => { if (e.points.length !== 1) return; if (startDrag(e, 'vert') || startDrag(e, 'stop')) { map.on('touchmove', moveDrag); map.once('touchend', ev => { map.off('touchmove', moveDrag); endDrag(ev); }); } });
     }
 
