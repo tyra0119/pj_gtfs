@@ -731,7 +731,7 @@
     sel.value = S.file;
   }
   $('#btnPopOut').addEventListener('click', () => { if (popped) popInEditor(); else popOutEditor(); });
-  $('#fileSelect').addEventListener('change', e => { S.file = e.target.value; S.page = 0; S.filter = ''; S.hlRow = null; S.formIndex = 0; renderEditor(); });
+  $('#fileSelect').addEventListener('change', e => { S.trMsg = ''; S.file = e.target.value; S.page = 0; S.filter = ''; S.hlRow = null; S.formIndex = 0; renderEditor(); });
   qa('.modes button').forEach(b => b.addEventListener('click', () => { S.mode = b.dataset.mode; qa('.modes button').forEach(x => x.classList.toggle('active', x === b)); renderEditor(); }));
   // ファイルを丸ごと消す。消す前に、行数・ほかのファイルからの参照（消すと途切れる）・必須かを出して確かめる
   const CORE_FILES = { 'agency.txt': '事業者', 'routes.txt': '路線', 'trips.txt': '便', 'stop_times.txt': '時刻・乗降時間帯' };
@@ -763,11 +763,33 @@
     G.ensureTable(S.feed, n); S.file = n; changed(); fillFileSelect(); renderEditor();
   });
 
+  // translations.txt を開いたとき: 読み仮名・英語などの行を、名前ごとにまとめて足す（訳は空。書き足すと検証の「訳が空」が消える）
+  const TR_LANGS = [['ja-Hrkt', '読み仮名（ja-Hrkt）'], ['en', '英語（en）'], ['zh-Hans', '中国語・簡体字（zh-Hans）'], ['zh-Hant', '中国語・繁体字（zh-Hant）'], ['ko', '韓国語（ko）'], ['ja', '日本語（ja。訳に元の名前を入れる）'], ['?', 'ほかの言語…']];
+  function trBar() {
+    const lang = el('select', { id: 'trLang' }, ...TR_LANGS.map(([v, l]) => el('option', { value: v }, l)));
+    const scope = el('select', { id: 'trScope' }, el('option', { value: 'stop_name' }, '停留所名'), el('option', { value: '' }, 'すべての名前（事業者・停留所・路線・行き先）'));
+    if (S.trLang) lang.value = S.trLang; if (S.trScope != null) scope.value = S.trScope;
+    const add = () => {
+      let lg = lang.value; S.trLang = lg; S.trScope = scope.value;
+      if (lg === '?') { lg = (prompt('言語コード（例: fr、de、th、es）') || '').trim(); if (!lg) return; }
+      const n = G.addTranslations(S.feed, lg, scope.value ? [scope.value] : null, lg === 'ja');
+      const what = scope.value ? '停留所名' : '名前';
+      if (!n) { S.trMsg = `どの${what}にも、すでに ${lg} の行があります`; renderEditor(); return; }
+      const t = S.feed.files['translations.txt'];
+      S.mode = 'table'; qa('.modes button').forEach(x => x.classList.toggle('active', x.dataset.mode === 'table'));
+      S.filter = ''; S.page = Math.floor((t.rows.length - n) / PAGE_SIZE); S.hlRow = t.rows.length - n; S.hlField = 'translation';
+      S.trMsg = lg === 'ja' ? `${what} ${n} 件の日本語（ja）の行を足しました` : `${what} ${n} 件の ${lg} の行を表の最後に足しました。translation（訳）の欄に書いてください（空のままだと検証で「訳が空」と出ます）`;
+      changed(); fillFileSelect(); renderEditor(); validateNow();
+    };
+    return el('div', { class: 'tablebar trbar' }, el('b', null, '言語の行を足す:'), lang, scope, el('button', { id: 'btnTrAdd', class: 'btn small', onclick: add }, '足す'), S.trMsg ? el('span', { class: 'muted small', id: 'trMsg' }, S.trMsg) : null);
+  }
+
   function renderEditor() {
     const box = $('#editor'); box.innerHTML = '';
     if (popDoc()) { const pn = popDoc().getElementById('popName'); if (pn) pn.textContent = S.name || ''; }
     if (!S.feed || !S.file) return;
     if (S.file === 'locations.geojson') { renderGeo(box); return; }
+    if (S.file === 'translations.txt') box.append(trBar());
     if (S.mode === 'table') renderTable(box);
     else if (S.mode === 'form') renderForm(box);
     else renderText(box);
@@ -813,6 +835,7 @@
     const t = S.feed.files[S.file];
     const spec = SPEC.FILES[S.file];
     const cols = spec ? spec.fields.map(f => f.name).filter(c => t.header.includes(c)).concat(t.header.filter(c => !spec.fields.some(f => f.name === c))) : t.header.slice();
+    if (S.file === 'translations.txt' && cols.includes('field_value') && cols.includes('translation')) { cols.splice(cols.indexOf('field_value'), 1); cols.splice(cols.indexOf('translation'), 0, 'field_value'); } // 元の値の隣に訳（書きやすいように。書き出しの列は仕様の順）
     // 絞り込み
     const q = S.filter.trim().toLowerCase();
     const idx = [];

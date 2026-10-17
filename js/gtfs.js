@@ -87,6 +87,28 @@
     for (const f of SPEC[name].fields) if (!f.draft && !t.header.includes(f.name)) t.header.push(f.name);
   }
   function rows(feed, name) { return feed.files[name] ? feed.files[name].rows : []; }
+  // ---------- 翻訳（translations.txt）----------
+  // 訳す名前の欄: [table_name, ファイル, 列, 日本語, record_id の列]
+  const TR_NAMES = [['agency', 'agency.txt', 'agency_name', '事業者名', 'agency_id'], ['stops', 'stops.txt', 'stop_name', '停留所名', 'stop_id'], ['routes', 'routes.txt', 'route_long_name', '路線名', 'route_id'], ['routes', 'routes.txt', 'route_short_name', '路線の短い名前', 'route_id'], ['trips', 'trips.txt', 'trip_headsign', '行き先', 'trip_id'], ['stop_times', 'stop_times.txt', 'stop_headsign', '行き先（停留所ごと）', null]];
+  // 言語 lang の行を、名前の値ごとに足す（field_value で指すので同じ名前は 1 行）。すでにその言語の訳がある名前は足さない。
+  // fields: 対象の列（省くとすべて）。copy: 訳に元の値を入れる（ja のとき）。空の訳は検証で「訳が空」として出るので、そこから書き足す。戻り値は足した行の数
+  function addTranslations(feed, lang, fields, copy) {
+    const t = ensureTable(feed, 'translations.txt');
+    for (const c of ['table_name', 'field_name', 'language', 'translation', 'record_id', 'field_value']) if (!t.header.includes(c)) t.header.push(c);
+    let n = 0;
+    for (const [tn, file, fn, , idCol] of TR_NAMES) {
+      if (fields && !fields.includes(fn)) continue;
+      const src = rows(feed, file); if (!src.length) continue;
+      const byId = idCol ? new Map(src.map(r => [r[idCol], r[fn]])) : new Map();
+      const have = new Set();
+      for (const r of t.rows) if (r.table_name === tn && r.field_name === fn && r.language === lang) have.add(r.field_value || byId.get(r.record_id) || '');
+      for (const v of new Set(src.map(r => r[fn]).filter(Boolean))) {
+        if (have.has(v)) continue;
+        t.rows.push(newRow('translations.txt', { table_name: tn, field_name: fn, language: lang, translation: copy ? v : '', field_value: v })); n++;
+      }
+    }
+    return n;
+  }
   // 停留所を消す。参照している行（グループの対応、便の行、乗継、構内経路、運賃エリア）も消し、子の parent_station を空にする
   function removeStops(feed, ids) {
     const set = new Set(ids), F = feed.files;
@@ -209,5 +231,5 @@
     else { mk(o.tripId + '_1', from, to, o.headsign, 0); mk(o.tripId + '_2', to, from, o.headsignBack || '', 1); }
   }
 
-  window.GTFS = { SPEC, ORDER, parseCSV, tableFromCSV, tableToCSV, emptyFeed, ensureTable, addSpecColumns, rows, removeStops, newRow, loadZip, saveZip, parseTime, fmtTime, templateFeed, addZoneTrip };
+  window.GTFS = { SPEC, ORDER, parseCSV, tableFromCSV, tableToCSV, emptyFeed, ensureTable, addSpecColumns, rows, removeStops, newRow, TR_NAMES, addTranslations, loadZip, saveZip, parseTime, fmtTime, templateFeed, addZoneTrip };
 })();

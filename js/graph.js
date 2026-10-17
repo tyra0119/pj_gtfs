@@ -158,7 +158,7 @@
       const ox = Object.keys(EXTRA_INFO).indexOf(x), oy = Object.keys(EXTRA_INFO).indexOf(y);
       return (ox < 0 ? 999 : ox) - (oy < 0 ? 999 : oy) || (x < y ? -1 : 1);
     });
-    const COLS = [100, 300, 500], top = MAIN_H + 60;
+    const COLS = [100, 300, 500], top = MAIN_H + 100; // 上の箱との間は、折れ線の通り道（横）と区切りの見出しに使う
     extraFiles.forEach((f, k) => {
       const info = EXTRA_INFO[f] || { label: '仕様外のファイル', key: null };
       nodes.push({ id: 'x:' + f, file: f, label: info.label, key: info.key, extra: true, x: COLS[k % 3], y: top + Math.floor(k / 3) * 100, rows: feed.files[f].rows.length, exists: feed.files[f].rows.length > 0, unused: 0 });
@@ -192,7 +192,7 @@
       const tn = nodes.find(n => n.id === from);
       if (missing.size) { tn.unused = [...missing].reduce((a, t) => a + (byTable[t] || []).length, 0); tn.unusedLabel = '訳す先のファイルがない行（table_name: ' + [...missing].join('・') + '）'; }
     }
-    return { nodes, edges, broken: edges.reduce((a, e) => a + e.broken.length, 0), viewH, extraTop: extraFiles.length ? top - 50 : null };
+    return { nodes, edges, broken: edges.reduce((a, e) => a + e.broken.length, 0), viewH, extraTop: extraFiles.length ? MAIN_H - 6 : null };
   }
 
   function el(tag, attrs, text) { const e = document.createElementNS(NS, tag); for (const [k, v] of Object.entries(attrs || {})) e.setAttribute(k, v); if (text != null) e.textContent = text; return e; }
@@ -214,24 +214,76 @@
     const pos = Object.fromEntries(a.nodes.map(n => [n.id, n]));
     // 箱の縁との交点
     const clip = (p, q) => { const dx = q.x - p.x, dy = q.y - p.y; const sx = Math.abs(dx) / (W / 2 + 4), sy = Math.abs(dy) / (H / 2 + 4); const s = Math.max(sx, sy) || 1; return { x: p.x + dx / s, y: p.y + dy / s }; };
-    for (const e of a.edges) {
-      const p = pos[e.from], q = pos[e.to];
-      const kind = e.broken.length ? 'bad' : e.refs ? 'ok' : 'none';
-      if (kind === 'none' && !p.exists) continue; // 元の表がない参照は描かない
-      const s = clip(p, q), t = clip(q, p);
-      const g = el('g', { class: 'edge ' + kind, tabindex: 0 });
-      g.appendChild(el('line', { x1: s.x, y1: s.y, x2: t.x, y2: t.y, class: 'hit' }));
-      g.appendChild(el('line', { x1: s.x, y1: s.y, x2: t.x, y2: t.y, 'marker-end': `url(#arr-${kind})` }));
-      // そのほかのファイルからの矢印は上の箱の間を通るので、札は出発側の近くに置く（箱に重ならないように）
-      const f = e.extra && p.extra ? 0.22 : 0.5, mx = s.x + (t.x - s.x) * f, my = s.y + (t.y - s.y) * f;
-      const label = e.broken.length ? `途切れ ${e.broken.length}` : e.refs ? `${e.refs}` : e.need === '任意' ? '任意' : e.altUsed ? '使っていない' : '0';
-      const lw = [...label].reduce((w, ch) => w + (ch.charCodeAt(0) > 255 ? 13 : 8), 0) + 14;
+    const kindOf = e => e.broken.length ? 'bad' : e.refs ? 'ok' : 'none';
+    const labelOf = e => e.broken.length ? `途切れ ${e.broken.length}` : e.refs ? `${e.refs}` : e.need === '任意' ? '任意' : e.altUsed ? '使っていない' : '0';
+    const widthOf = label => [...label].reduce((w, ch) => w + (ch.charCodeAt(0) > 255 ? 13 : 8), 0) + 14;
+    const shown = a.edges.filter(e => !(kindOf(e) === 'none' && !pos[e.from].exists)); // 元の表がない参照は描かない
+    // 札どうし・札と箱が重ならないように、置いた札と箱の場所を覚えておく
+    const boxes = a.nodes.map(n => ({ l: n.x - W / 2 - 2, r: n.x + W / 2 + 2, t: n.y - H / 2 - 2, b: n.y + H / 2 + 2 }));
+    const placed = [];
+    const free = rc => ![...boxes, ...placed].some(o => rc.l < o.r && o.l < rc.r && rc.t < o.b && o.t < rc.b);
+    const mains = shown.filter(e => !e.extra).map(e => {
+      const p = pos[e.from], q = pos[e.to], s = clip(p, q), t = clip(q, p), label = labelOf(e), lw = widthOf(label);
+      const mx = (s.x + t.x) / 2, my = (s.y + t.y) / 2;
+      placed.push({ l: mx - lw / 2, r: mx + lw / 2, t: my - 11, b: my + 11 });
+      return { e, pts: [s, t], mx, my, label, lw };
+    });
+    // そのほかのファイルの矢印は、箱を横切らないように折れ線で通す: 箱の段と段のすき間（横の通り道）と、図の左右の外側（縦の通り道）だけを使う
+    const rowsY = [...new Set(a.nodes.map(n => n.y))].sort((x, y) => x - y);
+    const chanAbove = y => { const i = rowsY.indexOf(y); return i > 0 ? (rowsY[i - 1] + y) / 2 : y - H / 2 - 14; };
+    const chanBelow = y => { const i = rowsY.indexOf(y); return i < rowsY.length - 1 ? (y + rowsY[i + 1]) / 2 : y + H / 2 + 14; };
+    const SPREAD = [0, -40, 40, -70, 70, -20, 20, -55, 55];
+    const outN = {}, inN = {}, chanN = {};
+    const chanOff = ch => { chanN[ch] = (chanN[ch] || 0) + 1; return ((chanN[ch] - 1) % 5 - 2) * 4; };
+    const routes = shown.filter(e => e.extra).map(e => {
+      const p = pos[e.from], q = pos[e.to], up = q.y < p.y, same = q.y === p.y;
+      const sChan = up || same ? chanAbove(p.y) : chanBelow(p.y), tChan = same ? chanAbove(q.y) : up ? chanBelow(q.y) : chanAbove(q.y);
+      const sx = p.x + SPREAD[((outN[p.id] = (outN[p.id] || 0) + 1) - 1) % SPREAD.length], tx = q.x + SPREAD[((inN[q.id] = (inN[q.id] || 0) + 1) - 1) % SPREAD.length];
+      const sy = up || same ? p.y - H / 2 - 1 : p.y + H / 2 + 1, ty = same || !up ? q.y - H / 2 - 4 : q.y + H / 2 + 4;
+      return { e, p, q, sChan, tChan, sx, tx, sy, ty, gutter: sChan !== tChan, side: (p.x + q.x) / 2 < 300 ? 'L' : 'R' };
+    });
+    // 縦の通り道: 左右それぞれ、高い所へ行く矢印ほど外側を通す（曲がり角で交わりにくい）
+    const left = Math.min(...a.nodes.map(n => n.x - W / 2)), right = Math.max(...a.nodes.map(n => n.x + W / 2));
+    let minX = 0, maxX = 600;
+    for (const side of ['L', 'R']) {
+      const list = routes.filter(r => r.gutter && r.side === side).sort((x, y) => Math.min(y.tChan, y.sChan) - Math.min(x.tChan, x.sChan));
+      list.forEach((r, k) => { r.lx = side === 'L' ? left - 10 - (list.length - 1 - k) * 7 : right + 10 + (list.length - 1 - k) * 7; });
+      if (list.length) { if (side === 'L') minX = Math.min(minX, list[0].lx - 10); else maxX = Math.max(maxX, list[0].lx + 10); }
+    }
+    for (const r of routes) {
+      const cs = r.sChan + chanOff(r.sChan), ct = r.gutter ? r.tChan + chanOff(r.tChan) : cs;
+      r.pts = r.gutter ? [{ x: r.sx, y: r.sy }, { x: r.sx, y: cs }, { x: r.lx, y: cs }, { x: r.lx, y: ct }, { x: r.tx, y: ct }, { x: r.tx, y: r.ty }] : [{ x: r.sx, y: r.sy }, { x: r.sx, y: cs }, { x: r.tx, y: cs }, { x: r.tx, y: r.ty }];
+      // 札: 先の箱に近い所から線をさかのぼり、箱にもほかの札にも重ならない所に置く
+      r.label = labelOf(r.e); r.lw = widthOf(r.label);
+      const rect = (x, y) => ({ l: x - r.lw / 2, r: x + r.lw / 2, t: y - 11, b: y + 11 });
+      let best = null;
+      for (let i = r.pts.length - 2; i >= 1 && !best; i--) {
+        const A = r.pts[i], B = r.pts[i - 1], horiz = A.y === B.y, len = horiz ? Math.abs(B.x - A.x) : Math.abs(B.y - A.y), dir = horiz ? Math.sign(B.x - A.x) : Math.sign(B.y - A.y);
+        const m0 = horiz ? r.lw / 2 + 8 : 15;
+        for (let d = m0; d <= len - m0 + 0.01; d += 6) {
+          const x = horiz ? A.x + dir * d : A.x, y = horiz ? A.y : A.y + dir * d, rc = rect(x, y);
+          if (free(rc)) { best = { mx: x, my: y, rc }; break; }
+        }
+      }
+      if (!best) { const A = r.pts[r.pts.length - 2], B = r.pts[r.pts.length - 3]; const x = (A.x + B.x) / 2, y = (A.y + B.y) / 2; best = { mx: x, my: y, rc: rect(x, y) }; }
+      placed.push(best.rc); r.mx = best.mx; r.my = best.my;
+    }
+    svg.setAttribute('viewBox', `${minX} 0 ${maxX - minX} ${a.viewH || VIEW_H}`);
+    svg.style.maxWidth = Math.round(440 * (maxX - minX) / 600) + 'px';
+    const draw = ({ e, pts, mx, my, label, lw }) => {
+      const p = pos[e.from], q = pos[e.to], kind = kindOf(e);
+      const g = el('g', { class: 'edge ' + kind + (e.extra ? ' routed' : ''), tabindex: 0 });
+      const d = pts.map((pt, i) => (i ? 'L' : 'M') + pt.x.toFixed(1) + ',' + pt.y.toFixed(1)).join(' ');
+      g.appendChild(el('path', { d, class: 'hit' }));
+      g.appendChild(el('path', { d, class: 'ln', 'marker-end': `url(#arr-${kind})` }));
       g.appendChild(el('rect', { x: mx - lw / 2, y: my - 11, width: lw, height: 22, rx: 11, class: 'tag' }));
       g.appendChild(el('text', { x: mx, y: my + 5, 'text-anchor': 'middle' }, label));
       g.appendChild(el('title', null, `${p.file} の ${e.cols.join(' / ')} → ${q.file}（${e.need}）\n参照 ${e.refs} 件${e.broken.length ? `、うち参照先がない ${e.broken.length} 件` : ''}`));
       g.addEventListener('click', () => h.onEdge(e)); g.addEventListener('keydown', ev => { if (ev.key === 'Enter') h.onEdge(e); });
       svg.appendChild(g);
-    }
+    };
+    // 折れ線を先に描き、上の箱どうしの矢印と札をその上に重ねる
+    routes.forEach(draw); mains.forEach(draw);
     for (const n of a.nodes) {
       const cls = ['node', n.exists ? 'ok' : (n.required ? 'missing' : 'empty'), n.unused ? 'unused' : ''].join(' ');
       const g = el('g', { class: cls, transform: `translate(${n.x - W / 2},${n.y - H / 2})`, tabindex: 0 });

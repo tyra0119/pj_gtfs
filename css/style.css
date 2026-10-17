@@ -247,12 +247,13 @@ table.grid th .coldel:hover { color: var(--err); }
 .graph .node.missing .nfile { fill: #b71c1c; }
 .graph .ubadge { fill: #f39c12; stroke: #fff; stroke-width: 1.5; }
 .graph .ubtext { font-size: 11px; fill: #fff; font-weight: 700; }
-.graph .edge line { stroke: #2a9d4a; stroke-width: 2.5; }
-.graph .edge line.hit { stroke: transparent; stroke-width: 14; }
-.graph .edge.bad line:not(.hit) { stroke: #d33; stroke-width: 3.5; }
+.graph .edge path { fill: none; stroke: #2a9d4a; stroke-width: 2.5; stroke-linejoin: round; }
+.graph .edge path.hit { stroke: transparent; stroke-width: 14; }
+.graph .edge.routed path.ln { stroke-width: 2; }
+.graph .edge.bad path:not(.hit) { stroke: #d33; stroke-width: 3.5; }
 .graph .gsep { stroke: #c9d1db; stroke-dasharray: 4 4; }
 .graph .gsec { font-size: 13px; fill: #5a6574; font-weight: 700; }
-.graph .edge.none line:not(.hit) { stroke: #aaa; stroke-dasharray: 4 3; }
+.graph .edge.none path:not(.hit) { stroke: #aaa; stroke-dasharray: 4 3; }
 .graph .edge { cursor: pointer; }
 .graph .edge .tag { fill: #fff; stroke: #2a9d4a; }
 .graph .edge.bad .tag { fill: #d33; stroke: #d33; }
