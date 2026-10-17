@@ -12,6 +12,19 @@
   const JP = { latMin: 20, latMax: 46, lonMin: 122, lonMax: 154 };
   // translations.txt の table_name に書ける表 → [ファイル, record_id の列, record_sub_id の列]（GTFS Schedule Reference）
   const TRANSLATION_TABLES = { agency: ['agency.txt', 'agency_id'], stops: ['stops.txt', 'stop_id'], routes: ['routes.txt', 'route_id'], trips: ['trips.txt', 'trip_id'], stop_times: ['stop_times.txt', 'trip_id', 'stop_sequence'], pathways: ['pathways.txt', 'pathway_id'], levels: ['levels.txt', 'level_id'], feed_info: ['feed_info.txt', null], attributions: ['attributions.txt', 'attribution_id'] };
+  // translations.txt がないときの修正案。名前の値ごとに ja の行（元の値のまま）を作り、停留所名には読み仮名 ja-Hrkt の行（訳は空）も作る。
+  // 値で指す（field_value）ので、同じ名前の停留所が何行あっても 1 行で済む。読み仮名・英語は利用者が書き足す
+  function makeTranslations(feed) {
+    const t = window.GTFS.ensureTable(feed, 'translations.txt'); if (t.rows.length) return;
+    const R = n => (feed.files[n] ? feed.files[n].rows : []);
+    const targets = [['agency', 'agency.txt', 'agency_name'], ['stops', 'stops.txt', 'stop_name'], ['routes', 'routes.txt', 'route_long_name'], ['routes', 'routes.txt', 'route_short_name'], ['trips', 'trips.txt', 'trip_headsign'], ['stop_times', 'stop_times.txt', 'stop_headsign']];
+    for (const [tn, file, fn] of targets) {
+      for (const v of new Set(R(file).map(r => r[fn]).filter(Boolean))) {
+        t.rows.push(window.GTFS.newRow('translations.txt', { table_name: tn, field_name: fn, language: 'ja', translation: v, field_value: v }));
+        if (fn === 'stop_name') t.rows.push(window.GTFS.newRow('translations.txt', { table_name: tn, field_name: fn, language: 'ja-Hrkt', translation: '', field_value: v }));
+      }
+    }
+  }
   function editDistance(a, b) {
     const d = Array.from({ length: a.length + 1 }, (_, i) => [i]);
     for (let j = 1; j <= b.length; j++) d[0][j] = j;
@@ -445,7 +458,7 @@
         const v4 = c.profile === 'jp4';
         const jp = v4 ? 'GTFS-JP v4' : 'GTFS-JP v3';
         if (!has('fare_attributes.txt')) warn('fare_attributes.txt', null, '', `fare_attributes.txt がない（${jp} では必須。均一運賃でも 1 行書く）`, 'jp_file', { label: '均一運賃の行（price は要入力）を作る', safe: false, apply: feed => { const t = window.GTFS.ensureTable(feed, 'fare_attributes.txt'); if (!t.rows.length) t.rows.push(window.GTFS.newRow('fare_attributes.txt', { fare_id: 'fare1', price: '', currency_type: 'JPY', payment_method: '0', transfers: '0' })); } });
-        if (!has('translations.txt')) warn('translations.txt', null, '', `translations.txt がない（${jp} では必須。停留所名などの読み仮名・英語表記）`, 'jp_file');
+        if (!has('translations.txt')) warn('translations.txt', null, '', `translations.txt がない（${jp} では必須。停留所名などの読み仮名・英語表記）`, 'jp_file', { label: 'translations.txt を作る（事業者名・停留所名・路線名・行き先の日本語 ja の行と、停留所名の読み仮名 ja-Hrkt の行。読み仮名は空なので要入力）', safe: false, apply: makeTranslations });
         const agencies = R('agency.txt');
         agencies.forEach((r, i) => {
           if (!r.agency_id) err('agency.txt', i, 'agency_id', `agency_id が空（${jp} では事業者が 1 つでも必須）`, 'jp_required', c.setVal(r, 'agency_id', 'agency' + (i + 1), null, true));
