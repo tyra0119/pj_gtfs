@@ -1235,7 +1235,7 @@
         lf.append(el('label', null, p.label + ' ', el('small', { class: 'muted' }, p.name)), inp);
       }
       const n = f.geometry && f.geometry.type === 'Polygon' ? f.geometry.coordinates[0].length - 1 : '-';
-      lf.append(el('label', null, '頂点'), el('div', { class: 'muted' }, `${n} 点（${f.geometry ? f.geometry.type : '-'}）`));
+      lf.append(el('label', null, '頂点'), el('div', { class: 'muted' }, `${n} 点（${f.geometry ? f.geometry.type : '-'}）　`, M.getMode() === 'editShape' ? el('span', { class: 'small' }, '形を直しています（Esc で終わる）') : el('button', { class: 'btn small', title: '頂点を出して、動かす・足す・消す（Esc で終わる）', onclick: () => { M.setMode('editShape'); renderZones(); } }, '形を直す')));
       // この区域の指摘（区域そのものと、この区域を使う便の行）
       // 同じ文の指摘（便の行ごとに出るもの）は 1 行にまとめて件数を付ける
       const byMsg = new Map(); for (const it of locIssues(S.loc)) { const k = it.level + it.msg; if (!byMsg.has(k)) byMsg.set(k, []); byMsg.get(k).push(it); }
@@ -1275,7 +1275,8 @@
   $('#btnLocEdit').addEventListener('click', () => { if (!S.feed) return; if (M.getMode() !== 'editShape' && !(S.feed.locations && S.feed.locations.features[S.loc])) { alert('形を直す区域を選んでください（区域の選択欄か、地図で区域を押す）'); return; } toggleMode('editShape'); });
   $('#btnLocDel').addEventListener('click', () => { if (S.feed && S.feed.locations) deleteLocation(S.loc); });
   $('#btnStopAdd').addEventListener('click', () => { if (!S.feed) return; toggleMode('addStop'); if (M.getMode() === 'addStop') { S.stop = null; if (stopPopup) { stopPopup.remove(); stopPopup = null; } refreshMap(false); } renderStopForm(); });
-  $('#map').addEventListener('modechange', () => { renderStopForm(); if (S.feed && (S.stopView !== 'all' || S.viewTrip)) refreshMap(false); });
+  let prevMode = 'none';
+  $('#map').addEventListener('modechange', e => { renderStopForm(); if (S.feed && (S.stopView !== 'all' || S.viewTrip)) refreshMap(false); if (S.feed && (e.detail === 'editShape') !== (prevMode === 'editShape')) renderZones(); prevMode = e.detail; }); // 区域の欄の「形を直す」の表示も切り替える
   $('#btnStopMove').addEventListener('click', () => { if (!S.feed) return; toggleMode('moveStop'); });
   $('#btnStopDel').addEventListener('click', () => { if (S.stop) deleteStop(S.stop); });
   // 停留所を消す。参照している行（グループの対応、便の行、乗継、構内経路、運賃エリア、親駅）も一緒に消す
@@ -1449,6 +1450,7 @@
     if (groups.length > 4) box.append(el('div', { class: 'small muted' }, `ほかに指摘 ${groups.slice(4).reduce((a, g) => a + g.length, 0)} 件（検証タブで）`));
     box.append(el('div', { class: 'row' },
       el('button', { class: 'btn small', onclick: () => { S.loc = i; setTab('zones'); renderZones(); $('#locForm').scrollIntoView({ block: 'center' }); } }, '編集'),
+      el('button', { class: 'btn small', title: '頂点を出して、動かす・足す・消す（Esc で終わる）', onclick: () => { S.loc = i; closeLocPopup(); setTab('zones'); renderZones(); refreshMap(false); M.setMode('editShape'); } }, '形を直す'),
       rows.length ? el('button', { class: 'btn small', onclick: () => { S.file = 'stop_times.txt'; S.mode = 'table'; S.filter = id; S.page = 0; S.hlRow = null; $('#fileSelect').value = S.file; qa('.modes button').forEach(x => x.classList.toggle('active', x.dataset.mode === 'table')); setTab('files'); renderEditor(); } }, '便の行を見る') : null,
       el('button', { class: 'btn small danger', onclick: () => { if (deleteLocation(i)) closeLocPopup(); } }, '消す')));
     return box;
