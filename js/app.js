@@ -474,6 +474,7 @@
     refreshPopup();
     if (M.map.getSource('stops')) { stopFeatures(); M.setLocations(S.feed.locations, S.loc, lastView && lastView.focus && lastView.focus.size ? lastView.focus : null, S.locIssueLevel); }
     if (S.mode === 'table') markBadCells();
+    remarkForms();
   }
   // 運行事業者がゼロから作るときの手順。済んだものに ✔、未完のものは該当タブへ飛べる。
   function renderSteps() {
@@ -983,7 +984,19 @@
   // 1 行ぶんの指摘（情報は除く）。欄ごとと、欄に結び付かないもの
   function rowIssues(file, rowIdx) { return S.issues.filter(it => it.file === file && it.row === rowIdx + 2 && it.level !== 'info'); }
   // 入力欄の並び（フォーム・停留所の欄）に印と文を付ける。inputs: 列名 → 入力欄。欄にない指摘は先頭にまとめて出す
+  // フォームの欄に指摘の印と文を付ける。検証をやり直したら付け直す（前の印は消す）。
+  // 欄を直したあと、検証が 1 秒後に走っても、フォームに古い指摘が残らないように（停留所をグループに入れても「使われていない」が残っていた）
+  const formMarks = new Set();
   function markForm(box, file, rowIdx, inputs, top) {
+    const again = () => paintForm(box, file, typeof rowIdx === 'function' ? rowIdx() : rowIdx, inputs, top);
+    for (const m of formMarks) if (m.box === box || !m.box.isConnected) formMarks.delete(m);
+    formMarks.add({ box, again }); again();
+  }
+  function remarkForms() { for (const m of [...formMarks]) { if (m.box.isConnected) m.again(); else formMarks.delete(m); } }
+  function paintForm(box, file, rowIdx, inputs, top) {
+    (top || box).querySelectorAll(':scope > .iss-box').forEach(x => x.remove());
+    box.querySelectorAll('.iss-msg').forEach(x => x.remove());
+    for (const inp of Object.values(inputs)) if (inp && inp.classList) inp.classList.remove('in-err', 'in-warn');
     const list = rowIssues(file, rowIdx); if (!list.length) return;
     const loose = [];
     for (const it of list) {
@@ -1144,7 +1157,7 @@
     const t = G.ensureTable(S.feed, 'location_group_stops.txt');
     const i = t.rows.findIndex(r => r.location_group_id === gid && r.stop_id === sid);
     if (i >= 0) t.rows.splice(i, 1); else t.rows.push(G.newRow('location_group_stops.txt', { location_group_id: gid, stop_id: sid }));
-    changed(); renderZones(); refreshMap(false);
+    changed(); validateNow(); renderZones(); refreshMap(false); // すぐ検証し直す（「使われていない」がフォームに残らないように）
   }
   function renderZones() {
     if (!S.feed) return;
@@ -1479,7 +1492,7 @@
       if (S.stopFormAll) for (const c of rest) addField(c);
     }
     box.append(el('label', null, 'グループ'), groupMembershipUI(r.stop_id, () => renderStopForm()));
-    markForm(box, 'stops.txt', G.rows(S.feed, 'stops.txt').indexOf(r), stopInputs, null);
+    markForm(box, 'stops.txt', () => G.rows(S.feed, 'stops.txt').indexOf(r), stopInputs, null);
   }
 
   // ---------- 便を追加 ----------

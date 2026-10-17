@@ -525,7 +525,7 @@
         R('calendar.txt').forEach((r, i) => { if (!usedServices.has(r.service_id)) warn('calendar.txt', i, 'service_id', `service_id "${r.service_id}" はどの便にも使われていない`, 'unused', c.delRow('calendar.txt', r, `service_id "${r.service_id}" を消す`)); });
         const usedStops = new Set([...st.map(r => r.stop_id), ...R('location_group_stops.txt').map(r => r.stop_id)].filter(Boolean));
         const parents = new Set(R('stops.txt').map(r => r.parent_station).filter(Boolean));
-        R('stops.txt').forEach((r, i) => { if ((r.location_type || '0') === '0' && !usedStops.has(r.stop_id) && !parents.has(r.stop_id)) warn('stops.txt', i, 'stop_id', `停留所 "${r.stop_id}" ${r.stop_name || ''} はどの便・グループにも使われていない`, 'unused', { label: `停留所 "${r.stop_id}" を消す（乗継・構内経路・運賃エリアの参照も外す）`, safe: false, apply: feed => window.GTFS.removeStops(feed, [r.stop_id]) }); });
+        R('stops.txt').forEach((r, i) => { if ((r.location_type || '0') === '0' && !usedStops.has(r.stop_id) && !parents.has(r.stop_id)) warn('stops.txt', i, 'stop_id', `停留所 "${r.stop_id}" ${r.stop_name || ''} はどの便・グループにも使われていない（便の行にもグループにも入っていないので、乗り降りに使われない。グループに入れるか、便の行で使う。要らなければ消す）`, 'unused', { label: `停留所 "${r.stop_id}" を消す（乗継・構内経路・運賃エリアの参照も外す）`, safe: false, apply: feed => window.GTFS.removeStops(feed, [r.stop_id]) }); });
       },
     },
   ];
