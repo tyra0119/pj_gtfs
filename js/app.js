@@ -733,6 +733,26 @@
   $('#btnPopOut').addEventListener('click', () => { if (popped) popInEditor(); else popOutEditor(); });
   $('#fileSelect').addEventListener('change', e => { S.file = e.target.value; S.page = 0; S.filter = ''; S.hlRow = null; S.formIndex = 0; renderEditor(); });
   qa('.modes button').forEach(b => b.addEventListener('click', () => { S.mode = b.dataset.mode; qa('.modes button').forEach(x => x.classList.toggle('active', x === b)); renderEditor(); }));
+  // ファイルを丸ごと消す。消す前に、行数・ほかのファイルからの参照（消すと途切れる）・必須かを出して確かめる
+  const CORE_FILES = { 'agency.txt': '事業者', 'routes.txt': '路線', 'trips.txt': '便', 'stop_times.txt': '時刻・乗降時間帯' };
+  function deleteFile(name) {
+    if (!S.feed || !name) return false;
+    const isGeo = name === 'locations.geojson';
+    if (isGeo ? !S.feed.locations : !S.feed.files[name]) return false;
+    const rows = isGeo ? (S.feed.locations.features || []).length : S.feed.files[name].rows.length;
+    const a = window.FlexGraph.analyze(S.feed); const node = a.nodes.find(n => n.file === name || (n.alt && n.alt === name && !S.feed.files[n.file]));
+    const ins = node ? a.edges.filter(e => e.to === node.id && e.refs) : [];
+    const lines = [];
+    if (CORE_FILES[name]) lines.push(`・${CORE_FILES[name]}（${name}）は必須のファイルです。消すとデータとして使えなくなります`);
+    if (name === 'calendar.txt' && !S.feed.files['calendar_dates.txt']) lines.push('・運行日のファイル（calendar.txt か calendar_dates.txt）が 1 つもなくなります');
+    for (const e of ins) { const f = a.nodes.find(n => n.id === e.from); lines.push(`・${f.file} の ${e.cols.join('・')} が ${e.refs} 行でこのファイルを指しています（消すと途切れます）`); }
+    if (!confirm(`ファイル ${name}（${rows} ${isGeo ? '区域' : '行'}）を消しますか？\n` + (lines.length ? lines.join('\n') + '\n' : '') + '（「元に戻す」で取り消せます）')) return false;
+    if (isGeo) { S.feed.locations = null; S.loc = -1; } else delete S.feed.files[name];
+    S.page = 0; S.filter = ''; S.hlRow = null; S.formIndex = 0;
+    changed(); fillFileSelect(); renderEditor(); renderZones(); renderTrips(); refreshMap(false); validateNow();
+    return true;
+  }
+  $('#btnDelFile').addEventListener('click', () => deleteFile(S.file));
   $('#btnAddFile').addEventListener('click', () => {
     if (!S.feed) return;
     const cands = SPEC.ORDER.filter(n => !S.feed.files[n]).concat(S.feed.locations ? [] : ['locations.geojson']);
