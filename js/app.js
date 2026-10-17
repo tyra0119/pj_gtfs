@@ -45,7 +45,7 @@
       S.feed.locations.features.push({ type: 'Feature', id, properties: { stop_name: '新しい区域' }, geometry: { type: 'Polygon', coordinates: [ccw(ring)] } });
       S.loc = S.feed.locations.features.length - 1;
       changed(); renderZones(); refreshMap();
-      $('#btnLocDraw').classList.remove('on');
+      M.setMode('editShape'); // 描き終えたら、そのまま頂点を出して形を直せるように（Esc か「形を直す」で終わる）
     },
     onVertexMoved(ring, index, ll, done) {
       const f = S.feed.locations && S.feed.locations.features[S.loc]; if (!f) return;
@@ -82,9 +82,10 @@
   $('#map').appendChild(modeBadge);
   $('#map').addEventListener('modechange', e => {
     const m = e.detail;
-    const text = { freehand: '区域をなぞって描きます: 左ボタンを押したまま（指 1 本で）外周をなぞり、離すと頂点に変わります。Esc で中止', draw: '区域を描いています: クリックで頂点、ダブルクリックか Enter で確定、Esc で中止', addStop: '地図をクリックした所に停留所を追加します', moveStop: '停留所をドラッグして動かせます', pickStops: '停留所をクリックするとグループに出し入れします' }[m];
+    if (m !== 'editShape') closeVertPopup();
+    const text = { editShape: '区域の形を直しています: 頂点をドラッグで動かす・辺の真ん中の点を押して頂点を足す・頂点を押して消す。Esc か「形を直す」で終わる', freehand: '区域をなぞって描きます: 左ボタンを押したまま（指 1 本で）外周をなぞり、離すと頂点に変わります。Esc で中止', draw: '区域を描いています: クリックで頂点、ダブルクリックか Enter で確定、Esc で中止', addStop: '地図をクリックした所に停留所を追加します', moveStop: '停留所をドラッグして動かせます', pickStops: '停留所をクリックするとグループに出し入れします' }[m];
     modeBadge.style.display = text ? 'block' : 'none'; modeBadge.textContent = text || '';
-    for (const [id, mode] of [['#btnLocDraw', 'draw'], ['#btnLocFree', 'freehand'], ['#btnStopAdd', 'addStop'], ['#btnStopMove', 'moveStop'], ['#btnPickStops', 'pickStops']]) $(id).classList.toggle('on', m === mode);
+    for (const [id, mode] of [['#btnLocDraw', 'draw'], ['#btnLocFree', 'freehand'], ['#btnLocEdit', 'editShape'], ['#btnStopAdd', 'addStop'], ['#btnStopMove', 'moveStop'], ['#btnPickStops', 'pickStops']]) $(id).classList.toggle('on', m === mode);
   });
   function toggleMode(m) { M.setMode(M.getMode() === m ? 'none' : m); }
 
@@ -318,6 +319,7 @@
       const conv = window.FlexVersions.toCanonical(feed);
       feed.flexVersion = conv.version; feed.conversionNotes = conv.notes;
     }
+    if (M.getMode() !== 'none') M.setMode('none'); // 描く・形を直すなどの途中で別のデータを開いたら終える
     S.feed = feed; S.name = name; S.dirty = false; S.hlRow = null; S.page = 0; S.filter = '';
     closePopups(); // 前のデータの吹き出しを残さない
     S.stopView = 'all'; S.viewTrip = '';
@@ -1270,6 +1272,7 @@
   $('#locSelect').addEventListener('change', e => { S.loc = +e.target.value; renderZones(); refreshMap(false); const f = S.feed.locations.features[S.loc]; if (f) M.fitTo([f]); });
   $('#btnLocDraw').addEventListener('click', () => { if (!S.feed) return; toggleMode('draw'); });
   $('#btnLocFree').addEventListener('click', () => { if (!S.feed) return; toggleMode('freehand'); });
+  $('#btnLocEdit').addEventListener('click', () => { if (!S.feed) return; if (M.getMode() !== 'editShape' && !(S.feed.locations && S.feed.locations.features[S.loc])) { alert('形を直す区域を選んでください（区域の選択欄か、地図で区域を押す）'); return; } toggleMode('editShape'); });
   $('#btnLocDel').addEventListener('click', () => { if (S.feed && S.feed.locations) deleteLocation(S.loc); });
   $('#btnStopAdd').addEventListener('click', () => { if (!S.feed) return; toggleMode('addStop'); if (M.getMode() === 'addStop') { S.stop = null; if (stopPopup) { stopPopup.remove(); stopPopup = null; } refreshMap(false); } renderStopForm(); });
   $('#map').addEventListener('modechange', () => { renderStopForm(); if (S.feed && (S.stopView !== 'all' || S.viewTrip)) refreshMap(false); });
@@ -1361,7 +1364,7 @@
   }
   document.addEventListener('keydown', e => {
     const tg = e.target && e.target.tagName;
-    if ((e.key === 'Delete' || e.key === 'Backspace') && M.state.selVert && M.getMode() === 'none' && !/^(INPUT|TEXTAREA|SELECT)$/.test(tg || '') && !(e.target && e.target.isContentEditable)) {
+    if ((e.key === 'Delete' || e.key === 'Backspace') && M.state.selVert && M.getMode() === 'editShape' && !/^(INPUT|TEXTAREA|SELECT)$/.test(tg || '') && !(e.target && e.target.isContentEditable)) {
       if (deleteVertex(M.state.selVert.ring, M.state.selVert.index)) e.preventDefault();
     }
   });

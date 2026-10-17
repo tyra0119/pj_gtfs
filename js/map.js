@@ -119,6 +119,7 @@
         if (e.key === 'Enter' && state.mode === 'draw') finishDraw();
         if (e.key === 'Escape' && state.mode === 'draw') { state.draft = []; renderDraft(); setMode('none'); }
         if (e.key === 'Escape' && state.mode === 'freehand') { fh.pts = null; renderDraft(); setMode('none'); }
+        if (e.key === 'Escape' && state.mode === 'editShape') setMode('none');
         if (e.key === 'Backspace' && state.mode === 'draw' && document.activeElement === document.body) { state.draft.pop(); renderDraft(); }
       });
 
@@ -157,8 +158,9 @@
     }
 
     function finishDraw() {
-      if (state.draft.length >= 3) { const ring = state.draft.slice(); ring.push(ring[0].slice()); H.onPolygonDone(ring); }
+      const ring = state.draft.length >= 3 ? state.draft.concat([state.draft[0].slice()]) : null;
       state.draft = []; renderDraft(); setMode('none');
+      if (ring) H.onPolygonDone(ring); // 描き終えたら、続けて形を直せるようにする（画面側で「形を直す」にする）
     }
     // ---- なぞって描く ----
     // 左ボタンを押したまま（指 1 本で）外周をなぞり、離すと、線を間引いて頂点に変える（画面で 3 ピクセルより小さいぶれは省く）
@@ -219,6 +221,8 @@
       // なぞって描く間は、左ドラッグ（指 1 本）を線を引く操作にする。右ドラッグの回転・ホイールの拡大縮小はそのまま
       if (m === 'freehand') map.dragPan.disable(); else if (prev === 'freehand') { fh.pts = null; map.dragPan.enable(); }
       if (m !== 'draw') { state.draft = []; renderDraft(); }
+      if (m !== 'editShape') state.selVert = null;
+      renderVerts();
       container.dispatchEvent(new CustomEvent('modechange', { detail: m }));
     }
 
@@ -249,9 +253,13 @@
       const src = map.getSource('locations'); if (src) src.setData({ type: 'FeatureCollection', features: feats });
       renderVerts(fc);
     }
+    // 頂点と辺の真ん中の点は、「形を直す」（editShape）の間だけ出す。ふだんは区域の範囲（塗りと線）だけ
+    let lastFc = null;
     function renderVerts(fc) {
       const src = map.getSource('verts'); if (!src) return;
-      const f = fc && fc.features && fc.features[state.selectedFeature];
+      if (fc !== undefined) lastFc = fc; fc = lastFc;
+      if (state.mode === 'draw') return; // 描いている間は描きかけの頂点を出す（renderDraft）
+      const f = state.mode === 'editShape' && fc && fc.features && fc.features[state.selectedFeature];
       if (!f || !f.geometry || f.geometry.type !== 'Polygon') { src.setData(empty()); return; }
       const feats = [];
       f.geometry.coordinates.forEach((ring, ri) => {
