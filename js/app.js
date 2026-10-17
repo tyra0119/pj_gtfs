@@ -122,6 +122,20 @@
       for (const r of all) { const t = rc.to.has(r.stop_id), f = rc.from.has(r.stop_id); colorOf.set(r.stop_id, REACH_COLOR[t && f ? 'both' : t ? 'to' : f ? 'from' : 'none']); }
       res.colorOf = colorOf; res.focus = new Set([...rc.toZones, ...rc.fromZones, ...[...rc.inZone].filter(id => rc.legs.some(l => l.via === 'zone' && String(l.at.location_id) === id))]);
       res.legend = [[REACH_COLOR.both, '行き来できる'], [REACH_COLOR.to, 'ここから行ける'], [REACH_COLOR.from, 'ここへ来られる'], [REACH_COLOR.none, '行き来できない']];
+      // 選んだ停留所から、行き来できる停留所・区域へ直線を引く（▶ は進む向き。来られるだけの線は選んだ停留所へ向く）
+      const me = all.find(r => r.stop_id === S.stop), lines = [];
+      if (me && okLL(me)) {
+        const p0 = [+me.stop_lon, +me.stop_lat];
+        const line = (p, kind) => lines.push({ type: 'Feature', properties: { kind, color: REACH_COLOR[kind] }, geometry: { type: 'LineString', coordinates: kind === 'from' ? [p, p0] : [p0, p] } });
+        for (const r of all) { if (r.stop_id === S.stop || !okLL(r)) continue; const t = rc.to.has(r.stop_id), f = rc.from.has(r.stop_id); if (t || f) line([+r.stop_lon, +r.stop_lat], t && f ? 'both' : t ? 'to' : 'from'); }
+        for (const z of ((S.feed.locations && S.feed.locations.features) || [])) {
+          const id = String(z.id), t = rc.toZones.has(id), f = rc.fromZones.has(id); if (!t && !f) continue;
+          const ring = z.geometry && (z.geometry.type === 'Polygon' ? z.geometry.coordinates[0] : z.geometry.type === 'MultiPolygon' ? z.geometry.coordinates[0][0] : null); if (!ring || !ring.length) continue;
+          const xs = ring.map(q => q[0]), ys = ring.map(q => q[1]); line([(Math.min(...xs) + Math.max(...xs)) / 2, (Math.min(...ys) + Math.max(...ys)) / 2], t && f ? 'both' : t ? 'to' : 'from');
+        }
+      }
+      res.reachLines = lines;
+      if (lines.length) res.legend.push(['transparent', `線: 行ける所・来られる所へ（▶ は進む向き。区域は真ん中へ）`]);
       return res;
     }
     if (v === 'grouped') {
@@ -141,7 +155,7 @@
   function stopFeatures() {
     const v = stopView(); lastView = v;
     const feats = M.setStops(v.rows, memberSet(S.group), S.stop, S.stopIssues, { colorOf: v.colorOf, seqOf: v.seqOf });
-    M.setTripLine(v.line); M.setLegendExtra(v.legend);
+    M.setTripLine(v.line); M.setReachLines(v.reachLines); M.setLegendExtra(v.legend);
     return feats;
   }
   // 地図の右上: 地図に出す停留所と便を選ぶ

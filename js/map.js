@@ -47,6 +47,10 @@
       // 選んだ便の経路（停留所を順に結ぶ線。shapes.txt があればその形）
       map.addSource('trip-line', { type: 'geojson', data: empty() });
       map.addLayer({ id: 'trip-line', type: 'line', source: 'trip-line', layout: { 'line-join': 'round', 'line-cap': 'round' }, paint: { 'line-color': '#00897b', 'line-width': 4, 'line-opacity': 0.8 } });
+      // 選んだ停留所から行ける所・来られる所へ結ぶ直線（Flex には道筋がないので、行き先を結ぶだけ）。▶ は進む向き（行き来できる線には付けない）
+      map.addSource('reach-lines', { type: 'geojson', data: empty() });
+      map.addLayer({ id: 'reach-line', type: 'line', source: 'reach-lines', layout: { 'line-cap': 'round' }, paint: { 'line-color': ['get', 'color'], 'line-width': ['interpolate', ['linear'], ['zoom'], 10, 1.5, 15, 3], 'line-opacity': 0.65 } });
+      map.addLayer({ id: 'reach-arrow', type: 'symbol', source: 'reach-lines', filter: ['!=', ['get', 'kind'], 'both'], layout: { 'symbol-placement': 'line-center', 'text-field': '▶', 'text-size': 15, 'text-font': ['NotoSansCJKjp-Regular'], 'text-keep-upright': false, 'text-rotation-alignment': 'map', 'text-allow-overlap': true, 'text-ignore-placement': true }, paint: { 'text-color': ['get', 'color'], 'text-halo-color': '#fff', 'text-halo-width': 1 } });
       map.addLayer({ id: 'loc-label', type: 'symbol', source: 'locations', layout: { 'text-field': ['coalesce', ['get', 'stop_name'], ['get', '_id']], 'text-size': 13, 'text-font': ['NotoSansCJKjp-Regular'] }, paint: { 'text-color': '#1a3f8a', 'text-halo-color': '#fff', 'text-halo-width': 1.5 } });
       map.addSource('draft', { type: 'geojson', data: empty() });
       map.addLayer({ id: 'draft-fill', type: 'fill', source: 'draft', paint: { 'fill-color': '#f0a030', 'fill-opacity': 0.15 } });
@@ -297,6 +301,7 @@
       navigator.geolocation.getCurrentPosition(p => map.easeTo({ center: [p.coords.longitude, p.coords.latitude], zoom: Math.max(map.getZoom(), 14) }), () => { if (H.onLocateFallback) H.onLocateFallback(); });
     };
 
+    function setReachLines(feats) { const src = map.getSource('reach-lines'); if (src) src.setData({ type: 'FeatureCollection', features: feats || [] }); }
     function setTripLine(coords) { const src = map.getSource('trip-line'); if (src) src.setData(coords && coords.length > 1 ? { type: 'FeatureCollection', features: [{ type: 'Feature', properties: {}, geometry: { type: 'LineString', coordinates: coords } }] } : empty()); }
     // 凡例の下に足す説明（グループの色、選んだ便の乗車・降車の色）
     const legendExtra = document.createElement('div'); legendExtra.className = 'legend-extra'; legend.appendChild(legendExtra);
@@ -320,7 +325,7 @@
       map.on('touchmove', tm);
       map.once('touchend', () => { map.off('touchmove', tm); fhEnd(); });
     });
-    return { map, state, setMode, setStops, setLocations, setTripLine, setLegendExtra, fitTo, finishDraw, drawPath, getMode: () => state.mode, top };
+    return { map, state, setMode, setStops, setLocations, setTripLine, setReachLines, setLegendExtra, fitTo, finishDraw, drawPath, getMode: () => state.mode, top };
   }
 
   window.FlexMap = { create };
