@@ -92,6 +92,12 @@
   // グループへの出し入れの最中は、入っていない停留所も選べるようにすべて出す。選んでいる停留所はいつも出す
   const GROUP_COLORS = ['#e53935', '#8e24aa', '#00897b', '#f4511e', '#3949ab', '#7cb342', '#c0ca33', '#6d4c41', '#d81b60', '#00acc1'];
   const ROLE_COLOR = { pickup: '#2e7d32', dropoff: '#ad1457', both: '#00838f' };
+  // 線分 p→q と線分 a→b が交わるなら、p→q の上の位置（0〜1）を返す
+  function segHit(p, q, a, b) {
+    const rx = q[0] - p[0], ry = q[1] - p[1], sx = b[0] - a[0], sy = b[1] - a[1], d = rx * sy - ry * sx; if (!d) return null;
+    const t = ((a[0] - p[0]) * sy - (a[1] - p[1]) * sx) / d, u = ((a[0] - p[0]) * ry - (a[1] - p[1]) * rx) / d;
+    return t >= 0 && t <= 1 && u >= 0 && u <= 1 ? t : null;
+  }
   function stopView() {
     const all = G.rows(S.feed, 'stops.txt');
     const lgs = G.rows(S.feed, 'location_group_stops.txt');
@@ -123,19 +129,34 @@
       res.colorOf = colorOf; res.focus = new Set([...rc.toZones, ...rc.fromZones, ...[...rc.inZone].filter(id => rc.legs.some(l => l.via === 'zone' && String(l.at.location_id) === id))]);
       res.legend = [[REACH_COLOR.both, '行き来できる'], [REACH_COLOR.to, 'ここから行ける'], [REACH_COLOR.from, 'ここへ来られる'], [REACH_COLOR.none, '行き来できない']];
       // 選んだ停留所から、行き来できる停留所・区域へ直線を引く（▶ は進む向き。来られるだけの線は選んだ停留所へ向く）
-      const me = all.find(r => r.stop_id === S.stop), lines = [];
+      const me = all.find(r => r.stop_id === S.stop), lines = [], zones = [];
       if (me && okLL(me)) {
         const p0 = [+me.stop_lon, +me.stop_lat];
-        const line = (p, kind) => lines.push({ type: 'Feature', properties: { kind, color: REACH_COLOR[kind] }, geometry: { type: 'LineString', coordinates: kind === 'from' ? [p, p0] : [p0, p] } });
+        // ▶ は線の真ん中でなく行き先寄り（6 割の所）に置き、線の向きに回す（真ん中は区域の名前や別の線と重なりやすい）
+        const line = (p, kind) => {
+          const [a, b] = kind === 'from' ? [p, p0] : [p0, p];
+          lines.push({ type: 'Feature', properties: { kind, color: REACH_COLOR[kind] }, geometry: { type: 'LineString', coordinates: [a, b] } });
+          if (kind === 'both') return;
+          const rot = -Math.atan2(b[1] - a[1], (b[0] - a[0]) * Math.cos(a[1] * Math.PI / 180)) * 180 / Math.PI;
+          lines.push({ type: 'Feature', properties: { kind, pt: 'arrow', rot, color: REACH_COLOR[kind] }, geometry: { type: 'Point', coordinates: [a[0] + (b[0] - a[0]) * 0.6, a[1] + (b[1] - a[1]) * 0.6] } });
+        };
         for (const r of all) { if (r.stop_id === S.stop || !okLL(r)) continue; const t = rc.to.has(r.stop_id), f = rc.from.has(r.stop_id); if (t || f) line([+r.stop_lon, +r.stop_lat], t && f ? 'both' : t ? 'to' : 'from'); }
+        // 区域へは、区域の真ん中に向けて引き、縁で止めて丸い印を付ける（選んだ停留所が区域の中なら線は引かない）
         for (const z of ((S.feed.locations && S.feed.locations.features) || [])) {
           const id = String(z.id), t = rc.toZones.has(id), f = rc.fromZones.has(id); if (!t && !f) continue;
-          const ring = z.geometry && (z.geometry.type === 'Polygon' ? z.geometry.coordinates[0] : z.geometry.type === 'MultiPolygon' ? z.geometry.coordinates[0][0] : null); if (!ring || !ring.length) continue;
-          const xs = ring.map(q => q[0]), ys = ring.map(q => q[1]); line([(Math.min(...xs) + Math.max(...xs)) / 2, (Math.min(...ys) + Math.max(...ys)) / 2], t && f ? 'both' : t ? 'to' : 'from');
+          const g = z.geometry, rings = g ? (g.type === 'Polygon' ? [g.coordinates[0]] : g.type === 'MultiPolygon' ? g.coordinates.map(p => p[0]) : []) : [];
+          const kind = t && f ? 'both' : t ? 'to' : 'from';
+          zones.push({ type: 'Feature', properties: { kind, color: REACH_COLOR[kind] }, geometry: g });
+          if (!rings.length || !rings[0] || !rings[0].length || rc.inZone.has(id)) continue;
+          const xs = rings.flat().map(q => q[0]), ys = rings.flat().map(q => q[1]), c = [(Math.min(...xs) + Math.max(...xs)) / 2, (Math.min(...ys) + Math.max(...ys)) / 2];
+          let best = null; // 選んだ停留所 → 真ん中 の線分が、区域の縁と最初に交わる所
+          for (const ring of rings) for (let k = 0; k < ring.length - 1; k++) { const hit = segHit(p0, c, ring[k], ring[k + 1]); if (hit != null && (best == null || hit < best)) best = hit; }
+          const e = best == null ? c : [p0[0] + (c[0] - p0[0]) * best, p0[1] + (c[1] - p0[1]) * best];
+          line(e, kind); lines.push({ type: 'Feature', properties: { kind, pt: 'end', color: REACH_COLOR[kind] }, geometry: { type: 'Point', coordinates: e } });
         }
       }
-      res.reachLines = lines;
-      if (lines.length) res.legend.push(['transparent', `線: 行ける所・来られる所へ（▶ は進む向き。区域は真ん中へ）`]);
+      res.reachLines = lines; res.reachZones = zones;
+      if (lines.length || zones.length) res.legend.push(['transparent', `線: 行ける所・来られる所へ（▶ は進む向き）。区域は太い枠で囲み、線は区域の縁の ○ まで`]);
       return res;
     }
     if (v === 'grouped') {
@@ -155,7 +176,7 @@
   function stopFeatures() {
     const v = stopView(); lastView = v;
     const feats = M.setStops(v.rows, memberSet(S.group), S.stop, S.stopIssues, { colorOf: v.colorOf, seqOf: v.seqOf });
-    M.setTripLine(v.line); M.setReachLines(v.reachLines); M.setLegendExtra(v.legend);
+    M.setTripLine(v.line); M.setReachLines(v.reachLines, v.reachZones); M.setLegendExtra(v.legend);
     return feats;
   }
   // 地図の右上: 地図に出す停留所と便を選ぶ

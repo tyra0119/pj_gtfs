@@ -48,9 +48,14 @@
       map.addSource('trip-line', { type: 'geojson', data: empty() });
       map.addLayer({ id: 'trip-line', type: 'line', source: 'trip-line', layout: { 'line-join': 'round', 'line-cap': 'round' }, paint: { 'line-color': '#00897b', 'line-width': 4, 'line-opacity': 0.8 } });
       // 選んだ停留所から行ける所・来られる所へ結ぶ直線（Flex には道筋がないので、行き先を結ぶだけ）。▶ は進む向き（行き来できる線には付けない）
+      // 行き先・出発元の区域は、線と同じ色の太い枠と薄い塗りで示す。線は区域の縁で止め、縁に丸い印を付ける
+      map.addSource('reach-zones', { type: 'geojson', data: empty() });
+      map.addLayer({ id: 'reach-zone-fill', type: 'fill', source: 'reach-zones', paint: { 'fill-color': ['get', 'color'], 'fill-opacity': 0.12 } });
+      map.addLayer({ id: 'reach-zone-line', type: 'line', source: 'reach-zones', paint: { 'line-color': ['get', 'color'], 'line-width': 3.5, 'line-opacity': 0.9 } });
       map.addSource('reach-lines', { type: 'geojson', data: empty() });
-      map.addLayer({ id: 'reach-line', type: 'line', source: 'reach-lines', layout: { 'line-cap': 'round' }, paint: { 'line-color': ['get', 'color'], 'line-width': ['interpolate', ['linear'], ['zoom'], 10, 1.5, 15, 3], 'line-opacity': 0.65 } });
-      map.addLayer({ id: 'reach-arrow', type: 'symbol', source: 'reach-lines', filter: ['!=', ['get', 'kind'], 'both'], layout: { 'symbol-placement': 'line-center', 'text-field': '▶', 'text-size': 15, 'text-font': ['NotoSansCJKjp-Regular'], 'text-keep-upright': false, 'text-rotation-alignment': 'map', 'text-allow-overlap': true, 'text-ignore-placement': true }, paint: { 'text-color': ['get', 'color'], 'text-halo-color': '#fff', 'text-halo-width': 1 } });
+      map.addLayer({ id: 'reach-line', type: 'line', source: 'reach-lines', filter: ['==', ['geometry-type'], 'LineString'], layout: { 'line-cap': 'round' }, paint: { 'line-color': ['get', 'color'], 'line-width': ['interpolate', ['linear'], ['zoom'], 10, 1.5, 15, 3], 'line-opacity': 0.65 } });
+      map.addLayer({ id: 'reach-end', type: 'circle', source: 'reach-lines', filter: ['==', ['get', 'pt'], 'end'], paint: { 'circle-radius': 5, 'circle-color': '#fff', 'circle-stroke-color': ['get', 'color'], 'circle-stroke-width': 3 } });
+      map.addLayer({ id: 'reach-arrow', type: 'symbol', source: 'reach-lines', filter: ['==', ['get', 'pt'], 'arrow'], layout: { 'text-field': '▶', 'text-size': 15, 'text-font': ['NotoSansCJKjp-Regular'], 'text-rotate': ['get', 'rot'], 'text-rotation-alignment': 'map', 'text-allow-overlap': true, 'text-ignore-placement': true }, paint: { 'text-color': ['get', 'color'], 'text-halo-color': '#fff', 'text-halo-width': 1 } });
       map.addLayer({ id: 'loc-label', type: 'symbol', source: 'locations', layout: { 'text-field': ['coalesce', ['get', 'stop_name'], ['get', '_id']], 'text-size': 13, 'text-font': ['NotoSansCJKjp-Regular'] }, paint: { 'text-color': '#1a3f8a', 'text-halo-color': '#fff', 'text-halo-width': 1.5 } });
       map.addSource('draft', { type: 'geojson', data: empty() });
       map.addLayer({ id: 'draft-fill', type: 'fill', source: 'draft', paint: { 'fill-color': '#f0a030', 'fill-opacity': 0.15 } });
@@ -301,7 +306,7 @@
       navigator.geolocation.getCurrentPosition(p => map.easeTo({ center: [p.coords.longitude, p.coords.latitude], zoom: Math.max(map.getZoom(), 14) }), () => { if (H.onLocateFallback) H.onLocateFallback(); });
     };
 
-    function setReachLines(feats) { const src = map.getSource('reach-lines'); if (src) src.setData({ type: 'FeatureCollection', features: feats || [] }); }
+    function setReachLines(feats, zones) { const src = map.getSource('reach-lines'), zs = map.getSource('reach-zones'); if (src) src.setData({ type: 'FeatureCollection', features: feats || [] }); if (zs) zs.setData({ type: 'FeatureCollection', features: zones || [] }); }
     function setTripLine(coords) { const src = map.getSource('trip-line'); if (src) src.setData(coords && coords.length > 1 ? { type: 'FeatureCollection', features: [{ type: 'Feature', properties: {}, geometry: { type: 'LineString', coordinates: coords } }] } : empty()); }
     // 凡例の下に足す説明（グループの色、選んだ便の乗車・降車の色）
     const legendExtra = document.createElement('div'); legendExtra.className = 'legend-extra'; legend.appendChild(legendExtra);
