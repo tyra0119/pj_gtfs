@@ -127,6 +127,7 @@ a { color: var(--accent); }
 <section>
   <h2><span class="no">4</span>つながりの図・便をたどる</h2>
   <p>「つながり」タブでは、ファイルを箱、参照（ID）を矢印で描きます。矢印の数字は参照している行の数、<span class="err">途切れ N</span> は参照先がない行の数です。矢印ごとに「必須・どれか 1 つ必須・推奨・任意」を書き分け、使っていない任意の矢印は灰色です。箱や矢印を押すと説明と直し方、途切れた行の一覧が出ます。</p>
+  <p>上の 11 個の箱にないファイル（翻訳 translations.txt、運賃 fare_attributes.txt・fare_rules.txt、形状 shapes.txt、GTFS-JP の独自のファイル、構内の通路など）は、図の下の「そのほかのファイル」に箱として並び、よく使う参照は矢印でつながります。翻訳は、table_name で指したファイルの record_id の行へつながります。</p>
   <figure><img src="manual/03_graph.jpg" alt="つながりの図と、停留所をグループごとに色分けした地図" loading="lazy"><figcaption>つながりの図（五所川原市）。右の地図は停留所をグループごとに色分け</figcaption></figure>
   <p>「便を選んでつながりをたどる」で便を 1 本選ぶと、便 → 路線 → 事業者 → 運行日 → 乗降場所（グループ・区域・停留所、時間帯、予約ルール）を ✔ / ✖ で順に示します。</p>
   <figure><img src="manual/04_trace.jpg" alt="便をたどる" loading="lazy"><figcaption>便をたどる（福智町）</figcaption></figure>

@@ -250,6 +250,8 @@ table.grid th .coldel:hover { color: var(--err); }
 .graph .edge line { stroke: #2a9d4a; stroke-width: 2.5; }
 .graph .edge line.hit { stroke: transparent; stroke-width: 14; }
 .graph .edge.bad line:not(.hit) { stroke: #d33; stroke-width: 3.5; }
+.graph .gsep { stroke: #c9d1db; stroke-dasharray: 4 4; }
+.graph .gsec { font-size: 13px; fill: #5a6574; font-weight: 700; }
 .graph .edge.none line:not(.hit) { stroke: #aaa; stroke-dasharray: 4 3; }
 .graph .edge { cursor: pointer; }
 .graph .edge .tag { fill: #fff; stroke: #2a9d4a; }
