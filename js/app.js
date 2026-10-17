@@ -116,6 +116,14 @@
       return res;
     }
     const v = S.stopView;
+    if (v === 'reach') { // 選んだ停留所から行ける所・来られる所
+      if (!S.stop || !all.some(r => r.stop_id === S.stop)) { res.legend = [['#bbb', '停留所を選ぶと、行ける所・来られる所を色分けします']]; return res; }
+      const rc = window.FlexGraph.reach(S.feed, S.stop), colorOf = new Map();
+      for (const r of all) { const t = rc.to.has(r.stop_id), f = rc.from.has(r.stop_id); colorOf.set(r.stop_id, REACH_COLOR[t && f ? 'both' : t ? 'to' : f ? 'from' : 'none']); }
+      res.colorOf = colorOf; res.focus = new Set([...rc.toZones, ...rc.fromZones, ...[...rc.inZone].filter(id => rc.legs.some(l => l.via === 'zone' && String(l.at.location_id) === id))]);
+      res.legend = [[REACH_COLOR.both, '行き来できる'], [REACH_COLOR.to, 'ここから行ける'], [REACH_COLOR.from, 'ここへ来られる'], [REACH_COLOR.none, '行き来できない']];
+      return res;
+    }
     if (v === 'grouped') {
       const groups = G.rows(S.feed, 'location_groups.txt').map(g => g.location_group_id);
       const colorOf = new Map(); for (const m of lgs) if (!colorOf.has(m.stop_id)) { const k = groups.indexOf(m.location_group_id); colorOf.set(m.stop_id, GROUP_COLORS[(k < 0 ? 0 : k) % GROUP_COLORS.length]); }
@@ -146,10 +154,11 @@
     const groups = G.rows(S.feed, 'location_groups.txt'), lgs = G.rows(S.feed, 'location_group_stops.txt'), all = G.rows(S.feed, 'stops.txt');
     const inAny = new Set(lgs.map(m => m.stop_id));
     if (S.stopView.startsWith('g:') && !groups.some(g => g.location_group_id === S.stopView.slice(2))) S.stopView = 'all';
-    if (S.stopView !== 'all' && S.stopView !== 'grouped' && S.stopView !== 'ungrouped' && !S.stopView.startsWith('g:')) S.stopView = 'all';
+    if (S.stopView !== 'all' && S.stopView !== 'grouped' && S.stopView !== 'ungrouped' && S.stopView !== 'reach' && !S.stopView.startsWith('g:')) S.stopView = 'all';
     viewStops.hidden = viewTrip.hidden = false;
     viewStops.innerHTML = '';
     viewStops.append(el('option', { value: 'all' }, `停留所: すべて（${all.length}）`));
+    viewStops.append(el('option', { value: 'reach', title: '選んだ停留所から行ける所・来られる所を色分け' }, '選んだ停留所の行き来'));
     if (groups.length) {
       viewStops.append(el('option', { value: 'grouped' }, `全グループ（色分け・${all.filter(r => inAny.has(r.stop_id)).length}）`));
       viewStops.append(el('option', { value: 'ungrouped' }, `グループに入っていない（${all.filter(r => !inAny.has(r.stop_id)).length}）`));
@@ -1426,12 +1435,39 @@
     stopPopup.setLngLat([+r.stop_lon, +r.stop_lat]);
     stopPopup.setDOMContent(stopPopupContent(r));
   }
+  // 停留所から行ける所・来られる所（便の行から読み取る）。吹き出しと停留所の欄に出し、「地図で色分け」で地図の停留所の出し方を切り替える
+  const REACH_COLOR = { both: '#00838f', to: '#2e7d32', from: '#ad1457', none: '#c4c4c4' };
+  function reachUI(sid) {
+    const r = window.FlexGraph.reach(S.feed, sid);
+    const trips = new Set(r.legs.map(l => l.trip)), R = n => G.rows(S.feed, n);
+    const wrap = el('div', { class: 'reach' });
+    if (!r.legs.length) { wrap.append(el('div', { class: 'small muted' }, 'どの便でも、ここから乗ってどこかで降りることができない（便の行にも、便で使うグループ・区域にも入っていない）')); return wrap; }
+    const n = (m, z) => [m.size ? `停留所 ${m.size}` : '', z.size ? `区域 ${z.size}` : ''].filter(Boolean).join('・') || 'なし';
+    wrap.append(el('div', { class: 'small' }, el('span', { class: 'rdot', style: `background:${REACH_COLOR.to}` }), ` ここから行ける: ${n(r.to, r.toZones)}　`, el('span', { class: 'rdot', style: `background:${REACH_COLOR.from}` }), ` ここへ来られる: ${n(r.from, r.fromZones)}（便 ${trips.size} 本）`));
+    const hm = v => { const m = /^(\d{1,2}):(\d{2})/.exec(v || ''); return m ? m[1].padStart(2, '0') + ':' + m[2] : ''; };
+    const when = x => x.start_pickup_drop_off_window ? `${hm(x.start_pickup_drop_off_window)}〜${hm(x.end_pickup_drop_off_window)}` : hm(x.departure_time || x.arrival_time) || '時刻なし';
+    const groupName = id => { const g = R('location_groups.txt').find(x => x.location_group_id === id); return g ? (g.location_group_name || id) : id; };
+    const place = x => x.stop_id ? `停留所「${(R('stops.txt').find(s => s.stop_id === x.stop_id) || {}).stop_name || x.stop_id}」` : x.location_group_id ? `グループ「${groupName(x.location_group_id)}」（停留所 ${R('location_group_stops.txt').filter(m => m.location_group_id === x.location_group_id).length}）` : `区域「${((((S.feed.locations || {}).features || []).find(f => String(f.id) === String(x.location_id)) || {}).properties || {}).stop_name || x.location_id}」`;
+    const rule = id => { const b = id && R('booking_rules.txt').find(x => x.booking_rule_id === id); if (!b) return ''; return '　予約: ' + ({ 0: 'なし', 1: `当日 ${b.prior_notice_duration_min || '?'} 分前まで`, 2: `${b.prior_notice_last_day || '?'} 日前 ${hm(b.prior_notice_last_time)} まで` }[b.booking_type] || '種類不明'); };
+    const head = id => { const t = R('trips.txt').find(x => x.trip_id === id); return `便 ${id}${t && t.trip_headsign ? '（' + t.trip_headsign + '）' : ''}`; };
+    const MAX = 8, seen = new Set(), lines = []; // 文は出す分（MAX 件）だけ作る（便が数千本あるデータで遅くならないように）
+    for (const l of r.legs) {
+      const k = l.dir + '|' + l.trip + '|' + l.other.stop_sequence; if (seen.has(k)) continue; seen.add(k);
+      if (lines.length < MAX) lines.push(l.dir === 'to' ? `→ ${head(l.trip)}: ${when(l.at)} に乗り、${place(l.other)} で降りる（${when(l.other)}）${rule(l.at.pickup_booking_rule_id)}` : `← ${head(l.trip)}: ${place(l.other)} で乗り（${when(l.other)}）、ここで降りる（${when(l.at)}）${rule(l.other.pickup_booking_rule_id)}`);
+    }
+    const zin = [...r.inZone].filter(id => r.legs.some(l => l.via === 'zone' && String(l.at.location_id) === id));
+    if (zin.length) wrap.append(el('div', { class: 'small muted' }, `区域${zin.map(id => place({ location_id: id }).replace(/^区域/, '')).join('・')}の中にあるので、その区域の行で乗り降りできる`));
+    wrap.append(el('details', null, el('summary', { class: 'small' }, `便ごとに見る（${seen.size}）`), ...lines.map(t => el('div', { class: 'small reach-line' }, t)), seen.size > MAX ? el('div', { class: 'small muted' }, `ほか ${seen.size - MAX} 件`) : null));
+    if (S.stopView !== 'reach' && !S.viewTrip) wrap.append(el('button', { class: 'btn small', title: '地図の停留所を、ここから行ける所・来られる所で色分けする', onclick: e => { e.stopPropagation(); S.stopView = 'reach'; renderMapView(); refreshMap(false); const v = lastView; if (v && v.rows.length) { const lc = (((S.feed.locations || {}).features) || []).filter(f => v.focus && v.focus.has(String(f.id))); M.fitTo(v.rows.filter(x => x.stop_id === sid || (v.colorOf && v.colorOf.get(x.stop_id) !== REACH_COLOR.none)).map(x => ({ type: 'Feature', geometry: { type: 'Point', coordinates: [+x.stop_lon, +x.stop_lat] } })).concat(lc)); } wrap.querySelector('button')?.remove(); renderStopForm(); } }, '地図で色分けする'));
+    return wrap;
+  }
   function stopPopupContent(r) {
     return el('div', { class: 'stop-popup' },
       el('b', null, r.stop_name || '(名前なし)'),
       el('div', { class: 'muted small' }, `stop_id ${r.stop_id}${r.stop_code ? '　番号 ' + r.stop_code : ''}`),
       el('div', { class: 'muted small' }, `${r.stop_lat}, ${r.stop_lon}`),
       groupMembershipUI(r.stop_id, () => selectStop(r.stop_id, { popup: true })),
+      reachUI(r.stop_id),
       ...((S.stopIssueList && S.stopIssueList.get(r.stop_id)) || []).slice(0, 4).map(popupIssue),
       el('div', { class: 'row' },
         el('button', { class: 'btn small', onclick: () => { setTab('zones'); renderStopForm(); $('#stopForm').scrollIntoView({ block: 'center' }); } }, '編集'),
@@ -1492,6 +1528,7 @@
       if (S.stopFormAll) for (const c of rest) addField(c);
     }
     box.append(el('label', null, 'グループ'), groupMembershipUI(r.stop_id, () => renderStopForm()));
+    box.append(el('label', null, '行き来'), reachUI(r.stop_id));
     markForm(box, 'stops.txt', () => G.rows(S.feed, 'stops.txt').indexOf(r), stopInputs, null);
   }
 

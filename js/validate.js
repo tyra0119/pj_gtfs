@@ -35,6 +35,9 @@
     for (const id of p.ids) t.rows.push(window.GTFS.newRow('calendar.txt', Object.assign({ service_id: id, start_date: p.start, end_date: p.end }, days)));
     if (p.fillTrips) for (const r of (feed.files['trips.txt'] ? feed.files['trips.txt'].rows : [])) if (!r.service_id) r.service_id = p.ids[0];
   }
+  // 点が区域ポリゴン（Polygon / MultiPolygon、穴を除く）の中か
+  function inRing(x, y, ring) { let c = false; for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) { const [xi, yi] = ring[i], [xj, yj] = ring[j]; if ((yi > y) !== (yj > y) && x < (xj - xi) * (y - yi) / (yj - yi) + xi) c = !c; } return c; }
+  function inGeom(x, y, g) { if (!g) return false; const polys = g.type === 'Polygon' ? [g.coordinates] : g.type === 'MultiPolygon' ? g.coordinates : []; return polys.some(p => p && p.length && inRing(x, y, p[0]) && !p.slice(1).some(h => inRing(x, y, h))); }
   function editDistance(a, b) {
     const d = Array.from({ length: a.length + 1 }, (_, i) => [i]);
     for (let j = 1; j <= b.length; j++) d[0][j] = j;
@@ -511,7 +514,7 @@
     },
     {
       id: 'unused', label: '使われていないもの', run(c) {
-        const { R, warn, ids, locIds } = c;
+        const { R, warn, info, ids, locIds } = c;
         const st = R('stop_times.txt');
         const usedGroups = new Set(st.map(r => r.location_group_id).filter(Boolean));
         for (const [g, i] of (ids['location_groups.txt'] || [])) if (!usedGroups.has(g)) warn('location_groups.txt', i, 'location_group_id', `グループ "${g}" はどの便にも使われていない`, 'unused', { label: `グループ "${g}" と、その停留所の対応を消す`, safe: false, apply: feed => { feed.files['location_groups.txt'].rows = feed.files['location_groups.txt'].rows.filter(x => x.location_group_id !== g); const m = feed.files['location_group_stops.txt']; if (m) m.rows = m.rows.filter(x => x.location_group_id !== g); } });
@@ -525,7 +528,10 @@
         R('calendar.txt').forEach((r, i) => { if (!usedServices.has(r.service_id)) warn('calendar.txt', i, 'service_id', `service_id "${r.service_id}" はどの便にも使われていない`, 'unused', c.delRow('calendar.txt', r, `service_id "${r.service_id}" を消す`)); });
         const usedStops = new Set([...st.map(r => r.stop_id), ...R('location_group_stops.txt').map(r => r.stop_id)].filter(Boolean));
         const parents = new Set(R('stops.txt').map(r => r.parent_station).filter(Boolean));
-        R('stops.txt').forEach((r, i) => { if ((r.location_type || '0') === '0' && !usedStops.has(r.stop_id) && !parents.has(r.stop_id)) warn('stops.txt', i, 'stop_id', `停留所 "${r.stop_id}" ${r.stop_name || ''} はどの便・グループにも使われていない（便の行にもグループにも入っていないので、乗り降りに使われない。グループに入れるか、便の行で使う。要らなければ消す）`, 'unused', { label: `停留所 "${r.stop_id}" を消す（乗継・構内経路・運賃エリアの参照も外す）`, safe: false, apply: feed => window.GTFS.removeStops(feed, [r.stop_id]) }); });
+        // 便で使う区域ポリゴンの中にある停留所は、区域の行で乗り降りできる（停留所としては参照されていないので情報にとどめる）
+        const zoneOf = r => { const x = +r.stop_lon, y = +r.stop_lat; if (isNaN(x) || isNaN(y)) return null; const f = c.locs.find(z => usedLocs.has(String(z.id)) && inGeom(x, y, z.geometry)); return f ? ((f.properties || {}).stop_name || String(f.id)) : null; };
+        R('stops.txt').forEach((r, i) => { const zn = (r.location_type || '0') === '0' && !usedStops.has(r.stop_id) && !parents.has(r.stop_id) && usedLocs.size ? zoneOf(r) : null; if (zn) info('stops.txt', i, 'stop_id', `停留所 "${r.stop_id}" ${r.stop_name || ''} はどの便・グループにも入っていないが、区域「${zn}」の中にあるので、区域の便で乗り降りできる（停留所として案内したいなら、グループに入れるか便の行で使う）`, 'unused_in_zone'); });
+        R('stops.txt').forEach((r, i) => { if ((r.location_type || '0') === '0' && !usedStops.has(r.stop_id) && !parents.has(r.stop_id) && !(usedLocs.size && zoneOf(r))) warn('stops.txt', i, 'stop_id', `停留所 "${r.stop_id}" ${r.stop_name || ''} はどの便・グループにも使われていない（便の行にもグループにも入っていないので、乗り降りに使われない。グループに入れるか、便の行で使う。要らなければ消す）`, 'unused', { label: `停留所 "${r.stop_id}" を消す（乗継・構内経路・運賃エリアの参照も外す）`, safe: false, apply: feed => window.GTFS.removeStops(feed, [r.stop_id]) }); });
       },
     },
   ];

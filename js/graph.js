@@ -298,6 +298,46 @@
     box.appendChild(svg);
   }
 
+  // ---- 停留所から行ける所・来られる所 ----
+  // 便の行（stop_times）を stop_sequence の順に見て、乗車できる行（pickup_type が 1 以外）から、後ろの降車できる行（drop_off_type が 1 以外）へ行ける。
+  // 行の乗降場所: stop_id はその停留所、location_group_id はグループに入っている停留所のどれでも、location_id は区域ポリゴンの中のどこでも。
+  // 停留所が行に当たるのは、stop_id が同じ・グループに入っている・区域ポリゴンの中にある とき。
+  // 戻り値: { to: Map(stop_id → Set(trip_id)), from: 同じ, toZones / fromZones: Set(location_id), toGroups / fromGroups: Set(location_group_id), legs: [{ dir, trip, at, other, via }] }
+  function inRing(x, y, ring) { let c = false; for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) { const [xi, yi] = ring[i], [xj, yj] = ring[j]; if ((yi > y) !== (yj > y) && x < (xj - xi) * (y - yi) / (yj - yi) + xi) c = !c; } return c; }
+  function inGeom(x, y, g) {
+    if (!g) return false;
+    const polys = g.type === 'Polygon' ? [g.coordinates] : g.type === 'MultiPolygon' ? g.coordinates : [];
+    return polys.some(p => p.length && inRing(x, y, p[0]) && !p.slice(1).some(h => inRing(x, y, h)));
+  }
+  function reach(feed, sid) {
+    const R = n => (feed.files[n] ? feed.files[n].rows : []);
+    const s = R('stops.txt').find(r => r.stop_id === sid);
+    const members = new Map(); for (const m of R('location_group_stops.txt')) { if (!members.has(m.location_group_id)) members.set(m.location_group_id, new Set()); members.get(m.location_group_id).add(m.stop_id); }
+    const locs = (feed.locations && feed.locations.features) || [];
+    const x = s ? +s.stop_lon : NaN, y = s ? +s.stop_lat : NaN;
+    const inZone = new Set(locs.filter(f => !isNaN(x) && !isNaN(y) && inGeom(x, y, f.geometry)).map(f => String(f.id)));
+    const hits = r => r.stop_id ? r.stop_id === sid : r.location_group_id ? !!(members.get(r.location_group_id) || new Set()).has(sid) : r.location_id ? inZone.has(String(r.location_id)) : false;
+    const via = r => r.stop_id ? 'stop' : r.location_group_id ? 'group' : 'zone';
+    const out = { to: new Map(), from: new Map(), toZones: new Set(), fromZones: new Set(), toGroups: new Set(), fromGroups: new Set(), legs: [], inZone };
+    const add = (dir, r, tid) => {
+      const m = out[dir], z = dir === 'to' ? out.toZones : out.fromZones, gs = dir === 'to' ? out.toGroups : out.fromGroups;
+      const put = id => { if (id === sid) return; if (!m.has(id)) m.set(id, new Set()); m.get(id).add(tid); };
+      if (r.stop_id) put(r.stop_id);
+      else if (r.location_group_id) { gs.add(r.location_group_id); for (const id of members.get(r.location_group_id) || []) put(id); }
+      else if (r.location_id) z.add(String(r.location_id));
+    };
+    const byTrip = new Map(); for (const r of R('stop_times.txt')) { if (!byTrip.has(r.trip_id)) byTrip.set(r.trip_id, []); byTrip.get(r.trip_id).push(r); }
+    for (const [tid, rows] of byTrip) {
+      rows.sort((a, b) => +a.stop_sequence - +b.stop_sequence);
+      rows.forEach((r, i) => {
+        if (!hits(r)) return;
+        if ((r.pickup_type || '0') !== '1') for (const o of rows.slice(i + 1)) if ((o.drop_off_type || '0') !== '1') { add('to', o, tid); out.legs.push({ dir: 'to', trip: tid, at: r, other: o, via: via(r) }); }
+        if ((r.drop_off_type || '0') !== '1') for (const o of rows.slice(0, i)) if ((o.pickup_type || '0') !== '1') { add('from', o, tid); out.legs.push({ dir: 'from', trip: tid, at: r, other: o, via: via(r) }); }
+      });
+    }
+    return out;
+  }
+
   const hm = v => { const m = /^(\d{1,2}):(\d{2})/.exec(v || ''); return m ? m[1].padStart(2, '0') + ':' + m[2] : ''; };
 
   // 便から順にたどる。各段: { label, ok, text, file?, row? }
@@ -336,5 +376,5 @@
     return out;
   }
 
-  window.FlexGraph = { NODES, REFS, analyze, render, traceTrip };
+  window.FlexGraph = { NODES, REFS, analyze, render, traceTrip, reach, inGeom };
 })();
