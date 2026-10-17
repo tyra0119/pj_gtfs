@@ -128,6 +128,7 @@ a { color: var(--accent); }
   <h2><span class="no">4</span>つながりの図・便をたどる</h2>
   <p>「つながり」タブでは、ファイルを箱、参照（ID）を矢印で描きます。矢印の数字は参照している行の数、<span class="err">途切れ N</span> は参照先がない行の数です。矢印ごとに「必須・どれか 1 つ必須・推奨・任意」を書き分け、使っていない任意の矢印は灰色です。箱や矢印を押すと説明と直し方、途切れた行の一覧が出ます。</p>
   <p>上の 11 個の箱にないファイル（翻訳 translations.txt、運賃 fare_attributes.txt・fare_rules.txt、形状 shapes.txt、GTFS-JP の独自のファイル、構内の通路など）は、図の下の「そのほかのファイル」に箱として並び、よく使う参照は矢印でつながります。翻訳は、table_name で指したファイルの record_id の行へつながります。そのほかのファイルの矢印は、箱を横切らないように、段と段のすき間と図の左右の外側を通る折れ線で描きます。</p>
+  <figure><img src="manual/15_graph_extra.jpg" alt="つながりの図の下の段に翻訳と運賃の箱。翻訳からの矢印は図の左の外側を回って事業者・路線・停留所へつながる" loading="lazy"><figcaption>そのほかのファイル（福智町に、検証の修正案で翻訳と運賃を作ったところ）。翻訳からの矢印は箱を避けて、図の左の外側を回って事業者・路線・停留所へ</figcaption></figure>
   <figure><img src="manual/03_graph.jpg" alt="つながりの図と、停留所をグループごとに色分けした地図" loading="lazy"><figcaption>つながりの図（五所川原市）。右の地図は停留所をグループごとに色分け</figcaption></figure>
   <p>「便を選んでつながりをたどる」で便を 1 本選ぶと、便 → 路線 → 事業者 → 運行日 → 乗降場所（グループ・区域・停留所、時間帯、予約ルール）を ✔ / ✖ で順に示します。</p>
   <figure><img src="manual/04_trace.jpg" alt="便をたどる" loading="lazy"><figcaption>便をたどる（福智町）</figcaption></figure>
@@ -157,6 +158,7 @@ a { color: var(--accent); }
   <p><span class="btn">別ウインドウで開く ↗</span> で、ファイル編集を大きな別のウインドウに出せます。直すと元の画面の地図・検証・変更にすぐ反映され、検証の一覧から行へ移ると別ウインドウの表がその行を示します。閉じるか <span class="btn">元の画面に戻す</span> で、元のタブに戻ります（ブラウザがポップアップを止めているときは、このサイトのポップアップを許可してください）。</p>
     <p>区域ポリゴン（locations.geojson）も同じ選択欄から開けます。表では区域ごとに ID・名前・説明・運賃ゾーン・URL を直せ、形と頂点の数、<span class="btn">地図で見る</span>・消す があります。テキストでは GeoJSON をそのまま直して「反映」できます。形そのものは「区域・停留所」タブの地図で直します。</p>
   <figure><img src="manual/07_table.jpg" alt="予約ルールの表。警告のセルが黄色" loading="lazy"><figcaption>予約ルールの表。警告のあるセルは黄色に橙の線（エラーは赤）。セルに乗せると指摘の文が出ます</figcaption></figure>
+  <figure><img src="manual/14_translations.jpg" alt="translations.txt の表の上に「言語の行を足す」。英語の行が停留所名の数だけ足され、訳の欄が赤く空いている" loading="lazy"><figcaption>「言語の行を足す」で、停留所名 181 件の英語（en）の行を足したところ。元の値の隣の訳（translation）の欄に書いていきます（空の間は赤）</figcaption></figure>
   <figure><img src="manual/12_popout.jpg" alt="ファイル編集を別ウインドウで開いたところ。停留所の表がウインドウいっぱいに出ている" loading="lazy"><figcaption>「別ウインドウで開く ↗」で、表を大きなウインドウに出したところ。右上の「元の画面に戻す」で元のタブに戻ります</figcaption></figure>
 </section>
 
