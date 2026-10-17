@@ -201,11 +201,58 @@
     ensureTable(f, 'location_groups.txt');
     ensureTable(f, 'location_group_stops.txt');
     if (opt.zoneKind === 'polygon' || opt.zoneKind === 'both') f.locations = { type: 'FeatureCollection', features: [] };
+    if (opt.pattern && opt.pattern !== 'zone') { addPattern(f, opt); return f; }
     if (opt.zoneKind !== 'polygon') {
       f.files['location_groups.txt'].rows.push(newRow('location_groups.txt', { location_group_id: 'zone1', location_group_name: opt.zoneName || '運行区域' }));
       addZoneTrip(f, { tripId: 'trip1', routeId: 'route1', serviceId: 'service1', ref: { location_group_id: 'zone1' }, start: opt.windowStart || '08:00:00', end: opt.windowEnd || '17:00:00', bookingRuleId: 'rule1' });
     }
     return f;
+  }
+
+  // 運行の型（新規作成の「運行の型」）。区域の中だけ（zone）は templateFeed の中で作る。ほかの型は便・区域・停留所の組み立てをここで作る。
+  //   hub      区域と駅・拠点の間（区域で乗って拠点で降りる・拠点で乗って区域で降りる。往復の 2 便）
+  //   zones    2 つの区域の間（区域 A ⇄ 区域 B。往復の 2 便）
+  //   route    決まった停留所を予約で回る（定時定路線の予約制。停留所 3 つを時刻どおりに。予約があるときだけ走る）
+  //   deviated 経路から外れて寄り道（停留所 A を出て、区域の中で予約に応じて寄り道し、停留所 B に着く）
+  // 停留所と区域ポリゴン（仮の四角）は opt.center（地図の中ほど）のまわりに置く。場所と形は地図で直す。区域が停留所グループのときは、停留所はあとで入れる
+  const PATTERNS = { zone: '区域の中で自由に乗り降り', hub: '区域と駅・拠点の間', zones: '2 つの区域の間', route: '決まった停留所を予約で回る', deviated: '経路から外れて寄り道' };
+  function addPattern(f, opt) {
+    const [cx, cy] = opt.center || [139.767, 35.681];
+    const ll = (dx, dy) => ({ stop_lon: (cx + dx).toFixed(6), stop_lat: (cy + dy).toFixed(6) });
+    const kind = opt.zoneKind || 'group', start = opt.windowStart || '08:00:00', end = opt.windowEnd || '17:00:00';
+    const base = { routeId: 'route1', serviceId: 'service1', bookingRuleId: 'rule1', start, end };
+    const stop = (id, name, dx, dy) => { ensureTable(f, 'stops.txt').rows.push(newRow('stops.txt', Object.assign({ stop_id: id, stop_name: name, location_type: '0' }, ll(dx, dy)))); return { stop_id: id }; };
+    const zone = (k, name, dx) => { // 区域 1 つ。グループか、仮の四角のポリゴン（反時計回り）
+      if (kind === 'polygon') {
+        const x0 = cx + dx - 0.015, x1 = cx + dx + 0.015, y0 = cy - 0.012, y1 = cy + 0.012;
+        if (!f.locations) f.locations = { type: 'FeatureCollection', features: [] };
+        f.locations.features.push({ type: 'Feature', id: 'area' + k, properties: { stop_name: name }, geometry: { type: 'Polygon', coordinates: [[[x0, y0], [x1, y0], [x1, y1], [x0, y1], [x0, y0]]] } });
+        return { location_id: 'area' + k };
+      }
+      f.files['location_groups.txt'].rows.push(newRow('location_groups.txt', { location_group_id: 'zone' + k, location_group_name: name }));
+      return { location_group_id: 'zone' + k };
+    };
+    if (opt.pattern === 'hub') {
+      const z = zone(1, opt.zoneName || '運行区域', 0), h = stop('hub1', '拠点（駅など）', 0.035, 0);
+      addZoneTrip(f, Object.assign({ tripId: 'trip1', ref: z, refTo: h, roundTrip: true, headsign: '拠点（駅など）', headsignBack: opt.zoneName || '運行区域' }, base));
+    } else if (opt.pattern === 'zones') {
+      const a = zone(1, '区域A', -0.02), b = zone(2, '区域B', 0.02);
+      addZoneTrip(f, Object.assign({ tripId: 'trip1', ref: a, refTo: b, roundTrip: true, headsign: '区域B', headsignBack: '区域A' }, base));
+    } else if (opt.pattern === 'route') {
+      const t0 = parseTime(start) || 8 * 3600, st = ensureTable(f, 'stop_times.txt');
+      f.files['trips.txt'].rows.push(newRow('trips.txt', { route_id: 'route1', service_id: 'service1', trip_id: 'trip1', trip_headsign: '停留所3', direction_id: '0' }));
+      [['stop1', '停留所1', -0.02, '2', '1'], ['stop2', '停留所2', 0, '2', '2'], ['stop3', '停留所3', 0.02, '1', '2']].forEach(([id, name, dx, pt, dt], k) => {
+        stop(id, name, dx, 0); const tm = fmtTime(t0 + k * 600);
+        st.rows.push(newRow('stop_times.txt', { trip_id: 'trip1', stop_id: id, stop_sequence: String(k + 1), arrival_time: tm, departure_time: tm, pickup_type: pt, drop_off_type: dt, pickup_booking_rule_id: pt === '2' ? 'rule1' : '', drop_off_booking_rule_id: dt === '2' ? 'rule1' : '', timepoint: '1' }));
+      });
+    } else if (opt.pattern === 'deviated') {
+      const st = ensureTable(f, 'stop_times.txt');
+      stop('stop1', '停留所A', -0.03, 0); const z = zone(1, '寄り道できる区域', 0); stop('stop2', '停留所B', 0.03, 0);
+      f.files['trips.txt'].rows.push(newRow('trips.txt', { route_id: 'route1', service_id: 'service1', trip_id: 'trip1', trip_headsign: '停留所B', direction_id: '0' }));
+      st.rows.push(newRow('stop_times.txt', { trip_id: 'trip1', stop_id: 'stop1', stop_sequence: '1', arrival_time: start, departure_time: start, pickup_type: '0', drop_off_type: '1', timepoint: '1' }));
+      st.rows.push(newRow('stop_times.txt', Object.assign({ trip_id: 'trip1', stop_sequence: '2', start_pickup_drop_off_window: start, end_pickup_drop_off_window: end, pickup_type: '2', drop_off_type: '2', pickup_booking_rule_id: 'rule1', drop_off_booking_rule_id: 'rule1' }, z)));
+      st.rows.push(newRow('stop_times.txt', { trip_id: 'trip1', stop_id: 'stop2', stop_sequence: '3', arrival_time: end, departure_time: end, pickup_type: '1', drop_off_type: '0', timepoint: '1' }));
+    }
   }
 
   // 区域運行の便を足す（GTFS-JP 4.0 ガイドライン 第3部 2.7 の型に沿う）。
@@ -231,5 +278,5 @@
     else { mk(o.tripId + '_1', from, to, o.headsign, 0); mk(o.tripId + '_2', to, from, o.headsignBack || '', 1); }
   }
 
-  window.GTFS = { SPEC, ORDER, parseCSV, tableFromCSV, tableToCSV, emptyFeed, ensureTable, addSpecColumns, rows, removeStops, newRow, TR_NAMES, addTranslations, loadZip, saveZip, parseTime, fmtTime, templateFeed, addZoneTrip };
+  window.GTFS = { SPEC, ORDER, parseCSV, tableFromCSV, tableToCSV, emptyFeed, ensureTable, addSpecColumns, rows, removeStops, newRow, TR_NAMES, addTranslations, loadZip, saveZip, parseTime, fmtTime, templateFeed, PATTERNS, addZoneTrip };
 })();

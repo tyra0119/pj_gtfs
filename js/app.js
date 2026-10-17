@@ -406,12 +406,30 @@
   $('#btnNew').addEventListener('click', () => $('#newDialog').showModal());
   $('#newForm').querySelector('[name=bookingType]').addEventListener('change', e => { const v = e.target.value; $('#newForm .bt1').style.display = v === '1' ? '' : 'none'; $('#newForm .bt2').style.display = v === '2' ? '' : 'none'; });
   $('#newForm .bt2').style.display = 'none';
+  // 運行の型: 何ができるかの説明と、型に合わない欄を隠す
+  const PATTERN_NOTE = {
+    zone: '区域の中で乗って、同じ区域の中で降りる便を 1 本作ります（区域ポリゴンのときは、区域を地図で描いてから便を足します）。',
+    hub: '区域 1 つと拠点の停留所 1 つ、区域 → 拠点・拠点 → 区域 の 2 便を作ります。拠点は地図の中ほどに置くので、場所を直してください。',
+    zones: '区域 A・B と、A → B・B → A の 2 便を作ります。',
+    route: '停留所 3 つと、10 分おきに回る便を 1 本作ります。どの停留所も予約して乗り降りします（区域は使いません）。停留所は地図の中ほどに置くので、場所と名前を直してください。',
+    deviated: '停留所 A・B と、その間の寄り道できる区域、A → 区域 → B の便を 1 本作ります。A を出る時刻から B に着く時刻まで、区域の中で予約に応じて乗り降りします。',
+  };
+  const syncPattern = () => {
+    const f = $('#newForm'), p = f.elements.pattern.value, k = f.elements.zoneKind.value;
+    $('#patternNote').textContent = PATTERN_NOTE[p] + (k === 'polygon' && p !== 'zone' && p !== 'route' ? '区域ポリゴンは仮の四角を置くので、形を地図で直してください。' : k !== 'polygon' && p !== 'route' ? '停留所グループには、あとで停留所を入れます。' : '');
+    f.querySelector('.zk').style.display = p === 'route' ? 'none' : '';
+    $('#winLabel').textContent = p === 'route' ? '始発の時刻' : p === 'deviated' ? '停留所 A を出る時刻 〜 B に着く時刻' : '乗降時間帯';
+    f.querySelector('.winEnd').style.display = p === 'route' ? 'none' : '';
+  };
+  $('#newForm').elements.pattern.addEventListener('change', syncPattern); $('#newForm').elements.zoneKind.addEventListener('change', syncPattern); syncPattern();
+  $('#newForm').addEventListener('reset', () => setTimeout(syncPattern, 0));
   $('#newForm').addEventListener('submit', e => {
     if (e.submitter && e.submitter.value !== 'ok') return;
     const fd = new FormData(e.target);
     const o = Object.fromEntries(fd.entries());
     o.days = [0, 1, 2, 3, 4, 5, 6].map(i => fd.get('d' + i) ? 1 : 0);
     o.agencyId = 'agency1'; o.zoneName = '運行区域';
+    try { const c = M.map && M.map.getCenter(); if (c) o.center = [c.lng, c.lat]; } catch (err) { /* 地図がまだ */ }
     if (!o.bookingMessage) {
       const how = [o.phone ? '電話' : '', o.bookingUrl ? 'Web' : ''].filter(Boolean).join('か') || '電話';
       o.bookingMessage = o.bookingType === '0' ? '予約なしで乗れます' : o.bookingType === '2' ? `${o.lastDay || 1} 日前の ${(o.lastTime || '17:00:00').slice(0, 5)} までに${how}で予約してください` : `ご利用の ${o.noticeMin || 30} 分前までに${how}で予約してください`;

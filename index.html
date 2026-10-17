@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>GTFS-Flex 作成・検証ツール</title>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/maplibre-gl/4.7.1/maplibre-gl.min.css">
-<link rel="stylesheet" href="css/style.css?v=79a92ea-mvc1b59p">
+<link rel="stylesheet" href="css/style.css?v=67f68e8-mvc1n745">
 </head>
 <body>
 <header class="topbar">
@@ -180,7 +180,17 @@
     <label>事業者 URL <span class="req">*</span> <input name="agencyUrl" type="url" required placeholder="https://www.town.example.lg.jp/"></label>
     <label>予約の電話番号 <input name="phone" placeholder="0120-000-000"></label>
     <label>サービス名（路線名） <input name="routeName" placeholder="○○デマンド交通"></label>
-    <label>区域の表し方
+    <label>運行の型
+      <select name="pattern">
+        <option value="zone">区域の中で自由に乗り降り</option>
+        <option value="hub">区域と駅・拠点の間（往復）</option>
+        <option value="zones">2 つの区域の間（往復）</option>
+        <option value="route">決まった停留所を予約で回る</option>
+        <option value="deviated">経路から外れて寄り道</option>
+      </select>
+    </label>
+    <p id="patternNote" class="muted small"></p>
+    <label class="zk">区域の表し方
       <select name="zoneKind">
         <option value="group">停留所グループ（決まった乗降場所の集まり）</option>
         <option value="polygon">区域ポリゴン（区域内のどこでも乗り降り）</option>
@@ -191,7 +201,7 @@
       <label><input type="checkbox" name="d0" checked>月</label><label><input type="checkbox" name="d1" checked>火</label><label><input type="checkbox" name="d2" checked>水</label><label><input type="checkbox" name="d3" checked>木</label><label><input type="checkbox" name="d4" checked>金</label><label><input type="checkbox" name="d5">土</label><label><input type="checkbox" name="d6">日</label>
     </span></label>
     <label>期間 <span class="req">*</span> <input name="startDate" placeholder="20260401" pattern="\d{8}" required> 〜 <input name="endDate" placeholder="20270331" pattern="\d{8}" required></label>
-    <label>乗降時間帯 <input name="windowStart" value="08:00:00" pattern="\d{1,2}:\d{2}:\d{2}"> 〜 <input name="windowEnd" value="17:00:00" pattern="\d{1,2}:\d{2}:\d{2}"></label>
+    <label><span id="winLabel">乗降時間帯</span> <input name="windowStart" value="08:00:00" pattern="\d{1,2}:\d{2}:\d{2}"><span class="winEnd"> 〜 <input name="windowEnd" value="17:00:00" pattern="\d{1,2}:\d{2}:\d{2}"></span></label>
     <label>予約の種類
       <select name="bookingType">
         <option value="1">当日に予約（○分前まで）</option>
@@ -218,15 +228,15 @@
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/maplibre-gl/4.7.1/maplibre-gl.min.js"></script>
-<script src="js/spec.js?v=79a92ea-mvc1b59p"></script>
-<script src="js/gtfs.js?v=79a92ea-mvc1b59p"></script>
-<script src="js/versions.js?v=79a92ea-mvc1b59p"></script>
-<script src="js/validate.js?v=79a92ea-mvc1b59p"></script>
-<script src="js/map.js?v=79a92ea-mvc1b59p"></script>
-<script src="js/odpt.js?v=79a92ea-mvc1b59p"></script>
-<script src="js/store.js?v=79a92ea-mvc1b59p"></script>
-<script src="js/diff.js?v=79a92ea-mvc1b59p"></script>
-<script src="js/graph.js?v=79a92ea-mvc1b59p"></script>
-<script src="js/app.js?v=79a92ea-mvc1b59p"></script>
+<script src="js/spec.js?v=67f68e8-mvc1n745"></script>
+<script src="js/gtfs.js?v=67f68e8-mvc1n745"></script>
+<script src="js/versions.js?v=67f68e8-mvc1n745"></script>
+<script src="js/validate.js?v=67f68e8-mvc1n745"></script>
+<script src="js/map.js?v=67f68e8-mvc1n745"></script>
+<script src="js/odpt.js?v=67f68e8-mvc1n745"></script>
+<script src="js/store.js?v=67f68e8-mvc1n745"></script>
+<script src="js/diff.js?v=67f68e8-mvc1n745"></script>
+<script src="js/graph.js?v=67f68e8-mvc1n745"></script>
+<script src="js/app.js?v=67f68e8-mvc1n745"></script>
 </body>
 </html>
